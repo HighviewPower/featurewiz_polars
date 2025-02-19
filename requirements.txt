@@ -2,5 +2,7 @@ numpy<2.0
 pandas>=1.2.4
 scipy
 scikit-learn>=1.2.2
-xgboost>=1.6
+xgboost>=1.6,<2
 kneed
+polars<=1.8.2
+
