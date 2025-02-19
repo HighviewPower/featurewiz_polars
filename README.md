@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
 <title>featurewiz-polars: Efficient Feature Selection and Encoding for Polars DataFrames</title>
-</head>
-<body>
-
-<h1>featurewiz-polars: Efficient Feature Selection and Encoding for Polars DataFrames</h1>
 
 <h2>Project Tagline</h2>
 
