@@ -1,6 +1,6 @@
-<title>featurewiz-polars: Efficient Feature Selection and Encoding for Polars DataFrames</title>
+<h1>featurewiz-polars: Efficient Feature Selection and Encoding for Polars DataFrames</h1>
 
-<h2>Project Tagline</h2>
+<h2>Project Description</h2>
 
 <p>Supercharge your data pipelines with <b>featurewiz-polars</b>, a library designed for high-performance feature selection and categorical encoding specifically optimized for <b>Polars DataFrames</b>. Process massive datasets with speed and efficiency, leveraging the power of Polars for feature engineering and machine learning workflows.</p>
 
