@@ -14,11 +14,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier # Or LightGBM, XGBoost, etc.
 # Import the Polars CategoricalFeatureEncoderV2 and PolarsMRMRSelectorV3 classes
-from polars_categorical_encoder import Polars_CategoricalEncoder # Now using V2 of Encoder
-from polars_datetime_transformer import Polars_DateTimeTransformer # Import new transformer
-from polars_sulov_mrmr import Sulov_MRMR
-from polars_other_transformers import YTransformer, Polars_MissingTransformer, Polars_ColumnEncoder
+from .polars_categorical_encoder import Polars_CategoricalEncoder # Now using V2 of Encoder
+from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new transformer
+from .polars_sulov_mrmr import Sulov_MRMR
+from .polars_other_transformers import YTransformer, Polars_MissingTransformer, Polars_ColumnEncoder
 import time
+import matplotlib.pyplot as plt
 import pdb
 #############################################################################
 class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name 
@@ -37,6 +38,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.selected_features = []
         # MRMR is different for regression and classification
         if self.model_type == 'regression':
+            
             ### This is for Regression where no YTransformer is needed ##
             preprocessing_pipeline = Pipeline([
                     ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns

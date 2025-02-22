@@ -6,7 +6,7 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.utils.multiclass import check_classification_targets
 import copy
 import pdb
-from polars_other_transformers import Polars_ColumnEncoder
+from .polars_other_transformers import Polars_ColumnEncoder
 #################################################################################################
 class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
     """

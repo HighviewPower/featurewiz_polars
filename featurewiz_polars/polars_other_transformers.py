@@ -17,6 +17,7 @@ from collections import defaultdict
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 import copy
+import pdb
 from collections import defaultdict
 ###########################################################################################
 class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
@@ -45,8 +46,8 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
             if X[col].dtype in (pl.Float32, pl.Float64)
         ]
         
+        self.fill_values_ = {}
         if self.strategy in ("mean", "median"):
-            self.fill_values_ = {}
             
             for col in self.float_columns_:
                 # Handle both NaN and null values in calculations
@@ -61,7 +62,7 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
                 self.fill_values_[col] = value if value is not None else 0.0
         else:
             for col in self.float_columns_:
-                self.fill_values_[col]
+                self.fill_values_[col] = 0.0
 
         self.fitted_ = True
         return self

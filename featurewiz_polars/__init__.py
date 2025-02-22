@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 ################################################################################
-#     featurewiz - advanced feature engineering and best features selection in single line of code
-#     Python v3.6+
-#     Created by Ram Seshadri
-#     Licensed under Apache License v2
+# featurewiz-polars - Blazing Fast MRMR feature selection using Polars for large datasets
+# Python v3.12+
+# Created by Ram Seshadri
+# Licensed under Apache License v2
 ################################################################################
 # Version
 from .__version__ import __version__
-from .featurewiz import featurewiz_polars
+from .featurewiz_polars import print_classification_metrics, print_regression_metrics
+from .featurewiz_polars import Featurewiz_MRMR_Model, Featurewiz_MRMR
+from .polars_other_transformers import Polars_ColumnEncoder, YTransformer
+from .polars_other_transformers import Polars_MissingTransformer
+from .polars_categorical_encoder import Polars_CategoricalEncoder # Now using V2 of Encoder
+from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new transformer
+from .polars_sulov_mrmr import Sulov_MRMR
 ################################################################################
 if __name__ == "__main__":
     module_type = 'Running'
@@ -15,9 +21,10 @@ else:
     module_type = 'Imported'
 version_number = __version__
 print("""%s featurewiz_polars %s. Use the following syntax:
-    >>> wiz = Polars_FeatureWiz_MRMR(verbose=0)
-    >>> X_train_selected, y_train = wiz.fit_transform(X_train, y_train)
-    >>> X_test_selected = wiz.transform(X_test)
-    >>> selected_features = wiz.features
+ >> from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
+ >> wiz = Featurewiz_MRMR(model_type='Classification')
+ >> X_transformed, y_transformed = wiz.fit_transform(X_train, y_train)
+ >> X_test_transformed = wiz.transform(X_test)
+ >> print(wiz.selected_features)
     """ %(module_type, version_number))
 ################################################################################
