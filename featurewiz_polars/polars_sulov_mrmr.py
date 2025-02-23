@@ -18,13 +18,16 @@ import copy
 from collections import Counter
 from sklearn.model_selection import train_test_split
 import pdb
+from polars import selectors as cs
+
 #################################################################################
 class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name 
+
     def __init__(self, corr_threshold: float = 0.7, ## minimum 0.7 is recommended
-                 model_type = 'classification', validation = False,
+                 model_type = 'classification', classic = True,
                  verbose: int = 0):
         self.corr_threshold = corr_threshold
-        self.model_type = model_type
+        self.model_type = model_type.lower()
         self.verbose = verbose
         self.selected_features = []
         self.target = None
@@ -32,7 +35,48 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
         self.fitted_ = False
         self.random_state = 12
-        self.validation = validation
+        self.classic = classic
+
+    def fit(self, X: pl.DataFrame, y: pl.Series) -> pl.DataFrame:
+        """
+        Fits the PolarsFeaturewiz to the data.
+        Optimized feature selection pipeline.
+
+        Args:
+            X (Polars DataFrame): Feature DataFrame of shape (n_samples, n_features)
+            y (Polars Series or array-like): Target vector of shape (n_samples,)
+
+        Returns:
+            self
+        """
+        ## check data
+        if self.model_type == 'regression':
+           print('\nFeaturewiz Polars started. Model type: Regression')
+        else:
+           print('\nFeaturewiz Polars started. Model type: Classification')
+        X, y = self._coerce_datasets(X, y)
+        self.target = y.name
+        self.min_features = max(2, int(0.25*len(X.columns)))
+        
+        # Step 1: SULOV-MRMR
+        sulov_features = self.sulov_mrmr(X, y)
+        print(f'SULOV selected Features ({len(sulov_features)}): {sulov_features}')
+        
+        # Step 2: Recursive XGBoost with expanded features
+        if len(sulov_features) > self.min_features:
+            if self.classic:
+                self.selected_features = self.recursive_xgboost(
+                    X.select(sulov_features), y)
+            else:
+                self.selected_features = self.recursive_xgboost_with_validation(
+                    X.select(sulov_features), y)
+        else:
+            self.selected_features = sulov_features
+        
+        print(f'\nRecursive XGBoost selected Features ({len(self.selected_features)}): {self.selected_features}')
+        self.fitted_ = True
+
+        return self
 
     def sulov_mrmr(self, X: pl.DataFrame, y: pl.Series) -> List[str]:
         """
@@ -43,6 +87,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         - Minimum feature count enforcement
         """
         # Initialize diagnostics
+        
         if self.verbose > 0:
             print("\n" + "="*40)
             print("Polars Featurewiz SULOV-MRMR Feature Selection Algorithm")
@@ -52,7 +97,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         # Separate numeric and categorical features
         numeric_cols = X.select(pl.col(pl.NUMERIC_DTYPES)).columns
         cat_cols = X.select(pl.col(pl.String, pl.Categorical)).columns
-        features = numeric_cols + cat_cols
+        features = sorted(numeric_cols + cat_cols)
         
         # Handle empty dataset edge case
         if not features:
@@ -61,34 +106,47 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         # 1. Calculate Mutual Information Scores
         if cat_cols and not self.fitted_:
             self.encoder.fit(X[features])
-        mis_scores = self._calculate_mis(X, y, features, cat_cols, self.encoder)
-        if self.verbose > 1:
+        mis_scores = self._calculate_mis(X, y, features, cat_cols)
+        if self.verbose:
             self._log_mis_scores(mis_scores)
 
         # 2. Calculate Feature Correlations
-        corr_pairs = self._calculate_correlations(X, features, numeric_cols, cat_cols)
-        if self.verbose > 1:
+        corr_pairs = self._calculate_correlations(X)
+        corr_pairs = corr_pairs.filter(pl.col("correlation").is_not_nan()) 
+        if self.verbose:
             self._log_correlations(corr_pairs)
 
         # 3. Adaptive Feature Removal (revised)
-        features_to_remove = self._adaptive_removal(corr_pairs, mis_scores)
-        if self.verbose > 1:
-            self._log_removals(features_to_remove)
+        if len(corr_pairs) >= 1:
+            features_to_remove = self._adaptive_removal(corr_pairs, mis_scores)
+            if self.verbose:
+                self._log_removals(features_to_remove)
+        else:
+            features_to_remove = []
 
         # 4. Final Selection with enhanced thresholds
-        remaining = [f for f in features if f not in features_to_remove]
-        self.min_features = self._enforce_min_features(remaining, mis_scores)
+        if len(features_to_remove) >= 1:
+            remaining = [f for f in features if f not in features_to_remove]
+        else:
+            remaining = features
+        #self.min_features = self._enforce_min_features(remaining, mis_scores)
         
-        if self.verbose > 0:
-            print(f"SULOV removed Features ({len(features_to_remove)}): {', '.join(features_to_remove)}")
-        
+        if self.verbose:
+            if len(features_to_remove) == 1:
+                feats_joined = features_to_remove
+            if len(features_to_remove) > 1:
+                feats_joined = ', '.join(features_to_remove)
+                print(f"SULOV removed Features ({len(features_to_remove)}): {feats_joined}")
+            else:
+                print('    No features to be removed in SULOV.')
+ 
         return remaining
 
     def _calculate_mis(self, X: pl.DataFrame, y: pl.Series, features: List[str], 
-                      cat_cols: List[str], encoder) -> Dict[str, float]:
+                      cat_cols: List[str]) -> Dict[str, float]:
         """Calculate Mutual Information Scores with proper encoding"""
         if cat_cols:
-            X_encoded = encoder.transform(X[features].to_pandas())
+            X_encoded = self.encoder.transform(X[features].to_pandas())
             discrete_mask = [f in cat_cols for f in features]
         else:
             X_encoded = X[features].to_pandas()
@@ -111,46 +169,51 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                         
         return dict(zip(features, mis_values))
 
-    def _calculate_correlations(self, X: pl.DataFrame, features: List[str],
-                               numeric_cols: List[str], cat_cols: List[str]) -> List[tuple]:
-        """Calculate correlations with appropriate metrics"""
-        corr_pairs = []
-        for f1, f2 in combinations(features, 2):
-            if f1 in numeric_cols and f2 in numeric_cols:
-                corr = X[[f1, f2]].corr().row(0)[1]
-            else:
-                # Cramer's V for categorical pairs
-                confusion = X[[f1, f2]].pivot(
-                    values=f2, 
-                    index=f1, 
-                    aggregate_fn=pl.len()
-                ).fill_null(0)
-                chi2, _, _, _ = chi2_contingency(confusion.to_numpy())
-                n = X.height
-                phi2 = chi2 / n
-                r, c = confusion.shape
-                corr = np.sqrt(phi2 / min((r-1), (c-1)))
-                
-            corr_pairs.append((f1, f2, abs(corr)))
-                                
-        return corr_pairs
+    def _calculate_correlations(self, X: pl.DataFrame) -> pl.DataFrame:
+        # Select only numeric columns using modern selector
+        numeric_df = X.select(cs.numeric())
+        
+        # Compute correlation matrix (column-wise)
+        corr_matrix = numeric_df.corr()
+        
+        # Melt to long format and filter
+        return (
+            corr_matrix
+            .with_columns(feature_a=pl.Series(numeric_df.columns))
+            .melt(
+                id_vars="feature_a",
+                variable_name="feature_b",
+                value_name="correlation"
+            )
+            .filter(
+                (pl.col("feature_a") < pl.col("feature_b")) &  # Upper triangle
+                (pl.col("correlation") >= self.corr_threshold)
+            )
+            .sort("correlation", descending=True)
+        )
 
     def _adaptive_removal(self, corr_pairs: List[tuple], mis_scores: Dict[str, float]) -> set:
         """Remove only features that are both:
         1. Correlated with better alternatives
-        2. Have MIS < 50% of max feature's score
+        2. Have MIS < 50% of max feature score
         """
         removal_candidates = defaultdict(int)
         max_mis = max(mis_scores.values())
-        
-        for f1, f2, corr in corr_pairs:
-            if corr > self.corr_threshold:
-                # Only consider removal if one feature is significantly better
-                ratio = mis_scores[f1] / (mis_scores[f2] + 1e-9)
-                if ratio < 0.7:  # f2 is at least 30% better
-                    removal_candidates[f1] += 1
-                elif ratio > 1.4:  # f1 is at least 40% better
-                    removal_candidates[f2] += 1
+
+        # Sort pairs by MI difference to resolve ties
+#        sorted_pairs = sorted(
+#            corr_pairs,
+#            key=lambda x: abs(mis_scores[x[0]] - mis_scores[x[1]]),
+#            reverse=True
+#        )
+
+        for f1, f2, corr in corr_pairs.iter_rows():
+            # Only consider removal if one feature is significantly better
+            ratio = mis_scores[f1] / (mis_scores[f2] + 1e-9)
+            if ratio < 0.7:  # f2 is at least 30% better
+                removal_candidates[f1] += 1
+            elif ratio > 1.4:  # f1 is at least 40% better
+                removal_candidates[f2] += 1
 
         return {f for f, count in removal_candidates.items() 
             if mis_scores[f] < 0.5 * max_mis}
@@ -184,9 +247,9 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         base_importances = full_model.feature_importances_
         ### Beware setting it at 70% or below: too permissive. Best perf is at 85%.
         tier_thresholds = np.percentile(base_importances, [15, 85])
-
+        
         if self.verbose:
-            print('base importances: ', base_importances, 'tier_thresholds[1]', tier_thresholds[1])
+            print('base importances: ', base_importances, '\ninitial features threshold', tier_thresholds[1])
             
         # Stratify features into importance tiers
         tiers = {
@@ -198,6 +261,8 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                     if imp < tier_thresholds[0]]
         }
         initial_features = tiers['high']
+        if self.verbose:
+            print(f'initial features selected: {initial_features}')
 
         # Dynamic configuration based on feature count
         iter_limit = max(3, int(total_features/5))  # set this number high to avoid selecting unimportant features
@@ -217,7 +282,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         for i in range(0, total_features, iter_limit):
 
             if self.verbose:
-                print('iteration #', i)
+                print('iteration #', (i+1))
 
             chunk_features = sorted_features[i:i+iter_limit]
             #print('chunk features = ', chunk_features)
@@ -235,13 +300,15 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             if self.verbose > 0:
                 print('feature importances: \n', importances)
 
-            # Select features with importance >50% of max
-            threshold = max_imp * 0.80 ### keep this as high as possible to avoid unnecessary features
+            # Select features with importance >50% of mean importance
+            threshold = np.mean(importances)*0.5
+            #selected = [f for f, imp in zip(features, importance) if imp >= threshold]
+            #threshold = max_imp * 0.80 ### keep this as high as possible to avoid unnecessary features
             selected = importances[importances >= threshold].index.tolist()
             
             # Fallback to top N features if threshold too strict
             if self.verbose > 0:
-                print('selected after importance: ', selected)
+                print(f'threshold = {threshold:.3f}, selected features above threshold: {selected}')
             
             # Update votes with exponential weighting (later chunks matter more)
             weight = 1 + (i/(total_features*2))  # 1x to 1.5x weight
@@ -276,8 +343,43 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         
         return final_features
 
-
     def _get_upper_triangle(self, corr_matrix: pl.DataFrame) -> pl.DataFrame:
+        """Efficiently extract upper triangle pairs and filter by threshold."""
+        features = corr_matrix.columns
+        
+        # Create feature-to-index lookup table
+        feature_indices = pl.DataFrame({
+            "feature": features,
+            "idx_b": pl.int_range(0, len(features))
+        })
+        
+        # Add row indices (idx_a) and melt
+        upper_triangle = (
+            corr_matrix
+            .with_columns(
+                feature_a=pl.Series(features),
+                idx_a=pl.int_range(0, len(features))
+            )
+            .melt(
+                id_vars=["feature_a", "idx_a"],
+                variable_name="feature_b",
+                value_name="correlation"
+            )
+            # Join to get column indices (idx_b)
+            .join(feature_indices, left_on="feature_b", right_on="feature")
+            .drop("feature")
+            # Filter upper triangle and apply threshold
+            .filter(
+                (pl.col("idx_a") < pl.col("idx_b")) &
+                (pl.col("correlation") >= self.corr_threshold)
+            )
+            .drop(["idx_a", "idx_b"])
+            .sort("correlation", descending=True)
+        )
+        return upper_triangle
+
+
+    def _get_upper_triangle_old(self, corr_matrix: pl.DataFrame) -> pl.DataFrame:
         """Extract upper triangle pairs from Polars correlation matrix"""
         # Get feature names and their indices
         features_list = corr_matrix.columns
@@ -306,7 +408,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             pl.col("idx_a") < pl.col("idx_b")
         ).drop(["idx_a", "idx_b"])
 
-    def _coerce_datasets(self, X, y):
+    def _coerce_datasets(self, X, y) -> pl.DataFrame:
         """Coerce datasets X and y into Polars dataframes and series."""
         if not isinstance(X, pl.DataFrame):
             if type(X) == tuple:
@@ -331,7 +433,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                 
         return X_pl, y_pl
 
-    def _check_pandas(self, X):
+    def _check_pandas(self, X) -> pl.DataFrame:
         if isinstance(X, pd.DataFrame):
             return pl.from_pandas(X)
         else:
@@ -342,47 +444,6 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         if self.model_type == 'classification':
             return XGBClassifier(n_estimators=100, random_state=self.random_state)
         return XGBRegressor(n_estimators=100, random_state=self.random_state)
-
-    def fit(self, X: pl.DataFrame, y: pl.Series) -> pl.DataFrame:
-        """
-        Fits the PolarsFeaturewiz to the data.
-        Optimized feature selection pipeline.
-
-        Args:
-            X (Polars DataFrame): Feature DataFrame of shape (n_samples, n_features)
-            y (Polars Series or array-like): Target vector of shape (n_samples,)
-
-        Returns:
-            self
-        """
-        ## check data
-        if self.model_type == 'regression':
-           print('Model type: Regression')
-        else:
-            print('Model type: Classification')
-        X, y = self._coerce_datasets(X, y)
-        self.target = y.name
-        self.min_features = max(2, int(0.25*len(X.columns)))
-
-        # Step 1: SULOV-MRMR
-        sulov_features = self.sulov_mrmr(X, y)
-        print(f'SULOV selected Features ({len(sulov_features)}): {sulov_features}')
-        
-        # Step 2: Recursive XGBoost with expanded features
-        if len(sulov_features) > len(self.min_features):
-            if self.validation:
-                self.selected_features = self.recursive_xgboost_with_validation(
-                    X.select(sulov_features), y)
-            else:
-                self.selected_features = self.recursive_xgboost(
-                    X.select(sulov_features), y)
-        else:
-            self.selected_features = sulov_features
-        
-        print(f'\nRecursive XGBoost selected Features ({len(self.selected_features)}): {self.selected_features}')
-        self.fitted_ = True
-
-        return self
 
     def transform(self, X, y=None):
         """
@@ -412,10 +473,13 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
 
     def _log_correlations(self, corr_pairs: list):
         """Log correlation pairs above threshold"""
-        print("\nHigh Correlation Pairs (correlation > threshold):")
-        for f1, f2, corr in corr_pairs:
-            if corr >= self.corr_threshold:
-                print(f"    {f1} vs {f2}: {corr:.4f}")
+        if len(corr_pairs) > 0:
+            print("\nHigh Correlation Pairs (correlation >= threshold):\n")
+            for f1, f2, corr in corr_pairs.iter_rows():
+                if corr >= self.corr_threshold:
+                    print(f"    {f1} vs {f2}: {corr:.4f}")
+        else:
+            print("\nNo high Correlation Pairs > threshold found in dataset.")
 
     def _log_removals(self, features_to_remove: set):
         """Log features being removed"""
@@ -429,9 +493,11 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         return self.selected_features
 
 
-    def recursive_xgboost_with_validation(self, X: pl.DataFrame, y: pl.Series, num_runs: int = 3, validation_size: float = 0.2) -> List[str]:
+    def recursive_xgboost_with_validation(self, X: pl.DataFrame, y: pl.Series, num_runs: int = 3, 
+                validation_size: float = 0.2) -> List[str]:
         """
-        Stabilized recursive feature selection with consistent performance using train-validation splits and multiple runs.
+        Stabilized recursive feature selection with consistent performance using train-validation 
+            splits and multiple runs.
         """
         from kneed import KneeLocator
         # Initialize with sorted features for consistency
@@ -444,9 +510,13 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             if self.verbose > 0:
                 print(f"\n--- Run {run_idx + 1} ---")
             if self.model_type == 'classification':
-                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), test_size=validation_size, stratify=y.to_pandas(), random_state=self.random_state + run_idx) # Create train/val split for each run
+                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), 
+                    test_size=validation_size, stratify=y.to_pandas(), random_state=self.random_state + run_idx)
+                    # Create train/val split for each run
             else:
-                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), test_size=validation_size,  random_state=self.random_state + run_idx) # Create train/val split for each run
+                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), test_size=validation_size,
+                 random_state=self.random_state + run_idx) 
+                    # Create train/val split for each run
             X_train_pl = pl.DataFrame(X_train) # Convert back to polars if needed within the method for consistency
             X_val_pl = pl.DataFrame(X_val)
             y_train_pl = pl.Series(y_train)

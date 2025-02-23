@@ -1,8 +1,8 @@
 import polars as pl
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from featurewiz_polars import print_classification_metrics, print_regression_metrics
 from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
@@ -15,12 +15,12 @@ n_informative = 10
 #X, y = make_classification(n_samples = 5000, n_features = n_features, 
 #                n_informative = n_informative, n_redundant=4, random_state=42)
 datapath = "../data/"
-filename = "heart_classification.csv"
-fl = pl.scan_csv(datapath+filename, null_values='NULL')
+filename = "house_price_regression.csv"
+fl = pl.scan_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True, infer_schema_length=10000, ignore_errors=True)
 df = fl.collect()#.sample(5000)
 print('Loaded data...', df.shape)
-target = 'target' # Replace with your target column name
-model_type = 'Classification'
+target = 'price' # Replace with your target column name
+model_type = 'Regression'
 if target not in df.columns:
     print(f"Error: Target column '{target}' not found in the CSV file.")
     exit()
@@ -31,22 +31,25 @@ print('Data dimensions (rows x cols) = %d dims' %(int(X.shape[0]*X.shape[1])))
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 # select top 10 features using mRMR
 if __name__ == '__main__':
-    import mrmr
-    from mrmr import mrmr_classif
+    from featurewiz import LazyTransformer, FeatureWiz
     start_time = time.time()
-    #mrmr_feats = mrmr_classif(X=X_train, y=y_train, K=int(0.5*n_features))
-    mrmr_feats = mrmr.polars.mrmr_regression(df=df, target_column=target, K=int(0.5*n_features))
+    lazy = LazyTransformer()
+    X_l, y_l = lazy.fit_transform(X_train.to_pandas(), y_train.to_pandas())
+    X_tl = lazy.transform(X_test.to_pandas())
+    wiz = FeatureWiz(corr_limit=0.7)
+    wiz.fit_transform(X_l, y_l)
+    mrmr_feats = wiz.features
     if model_type == 'Regression':
         model = RandomForestRegressor(n_estimators=100, random_state=42)
     else:
         model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train[mrmr_feats], y_train)
-    y_mrmr = model.predict(X_test[mrmr_feats])
+    model.fit(X_l[mrmr_feats], y_l)
+    y_mrmr = model.predict(X_tl[mrmr_feats])
     if model_type == 'Regression':
         print_regression_metrics(y_test.to_numpy().ravel(), y_mrmr, verbose=1)
     else:
         print_classification_metrics(y_test.to_numpy().ravel(), y_mrmr, verbose=1)
-    print(f'{len(mrmr_feats)} features selected by mrmr: {mrmr_feats}')
+    print(f'{len(mrmr_feats)} features selected by featurewiz-classic: {mrmr_feats}')
     print('Time taken with MRMR = %0.1f seconds' %(
         time.time()-start_time))
     ##################################################################################

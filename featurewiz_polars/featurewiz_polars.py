@@ -13,11 +13,11 @@ from sklearn.model_selection import train_test_split
 # Needed imports
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier # Or LightGBM, XGBoost, etc.
-# Import the Polars CategoricalFeatureEncoderV2 and PolarsMRMRSelectorV3 classes
+# Import the Polars classes now
 from .polars_categorical_encoder import Polars_CategoricalEncoder # Now using V2 of Encoder
-from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new transformer
-from .polars_sulov_mrmr import Sulov_MRMR
+from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new date-time transformer
 from .polars_other_transformers import YTransformer, Polars_MissingTransformer, Polars_ColumnEncoder
+from .polars_sulov_mrmr import Sulov_MRMR
 import time
 import matplotlib.pyplot as plt
 import pdb
@@ -26,6 +26,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
     def __init__(self, 
             model_type='classification', encoding_type='target', 
             imputation_strategy='mean', corr_threshold = 0.7,
+            classic = False,
             verbose = 0):
         self.model_type = model_type.lower()
         self.encoding_type = encoding_type.lower()
@@ -36,6 +37,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.featurewiz_pipeline = None
         self.feature_selection = None
         self.selected_features = []
+        self.classic = classic
         # MRMR is different for regression and classification
         if self.model_type == 'regression':
             
@@ -56,7 +58,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
                 ])
 
         featurewiz_pipeline = Pipeline([
-                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_threshold, model_type=self.model_type, verbose=self.verbose)),
+                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_threshold, model_type=self.model_type, classic=self.classic, verbose=self.verbose)),
                 ])
 
         feature_selection = Pipeline([
@@ -90,7 +92,6 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection[-1][-1].get_feature_names_out()
         print('\nPolars Featurewiz MRMR completed. Time taken  = %0.1f seconds' %(time.time()-start_time))
-        print('    Use "selected_features" attribute to retrieve list of selected features from featurewiz pipeline')
         self.fitted_ = True
         return self
 
@@ -137,6 +138,7 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
     def __init__(self, model=None, 
             model_type='classification', encoding_type='target', 
             imputation_strategy='mean', corr_threshold = 0.7,
+            classic=False,
             verbose = 0):
         self.model = model
         self.model_type = model_type.lower()
@@ -148,11 +150,14 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         self.featurewiz_pipeline = None
         self.feature_selection = None
         self.selected_features = []
-        # MRMR is different for regression and classification
+        self.model_fitted_ = False
+        self.classic = classic
+        # MRMR is same for regression and classification
         feature_selection = Featurewiz_MRMR(model_type=self.model_type, 
             encoding_type=self.encoding_type, 
             imputation_strategy=self.imputation_strategy, 
             corr_threshold =self.corr_threshold,
+            classic=self.classic,
             verbose=self.verbose)
 
         ### You need to separately create a column encoder because you will need this for transforming y_test later!
@@ -174,7 +179,14 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         #### Now train the model using the feature union pipeline
         self.feature_selection.fit(X, y)
         self.y_encoder.fit(y)
-        
+        if self.model_type == 'regression':
+            ### The model is not fitted yet so self.model_fitted_ is still False
+            if self.model is None:
+                self.model = RandomForestRegressor(n_estimators=100, random_state=99)
+        else:
+            ### The model is not fitted yet so self.model_fitted_ is still False
+            if self.model is None:
+                self.model = RandomForestClassifier(n_estimators=100, random_state=99)
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection.selected_features
         self.fitted_ = True
@@ -199,7 +211,9 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
             y = self._check_pandas(y)
             Xt = self.feature_selection.transform(X)
             yt = self.y_encoder.transform(y)
-            self.model.fit(Xt, yt)
+            self.model.fit(Xt[self.selected_features], yt)
+            ### The model is fitted now so self.model_fitted_ is set to True
+            self.model_fitted_ = True
             return Xt, yt
 
     def fit_transform(self, X, y):
@@ -207,8 +221,12 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         y = self._check_pandas(y)
         self.fit(X, y)
         Xt = self.transform(X)
-        yt = self.y_encoder.transform(y)
-        self.model.fit(Xt, yt)
+        if self.model_type != 'regression':
+            yt = self.y_encoder.transform(y)
+        else:
+            yt = y
+        self.model.fit(Xt[self.selected_features], yt)
+        self.model_fitted_ = True
         return Xt, yt
 
     def fit_predict(self, X, y):
@@ -217,9 +235,13 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         self.fit(X, y)
         if not self.model is None:
             Xt = self.transform(X)
-            yt = self.y_encoder.transform(y)
-            self.model.fit(Xt, yt)
-            return self.model.predict(Xt)
+            if self.model_type != 'regression':
+                yt = self.y_encoder.transform(y)
+            else:
+                yt = y
+            self.model.fit(Xt[self.selected_features], yt)
+            self.model_fitted_ = True
+            return self.model.predict(Xt[self.selected_features])
         else:
             raise ValueError("Inappropriate value of None for model argument in pipeline. Please correct and try again.")
 
@@ -237,7 +259,20 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         check_is_fitted(self, 'fitted_')
         X = self._check_pandas(X)
         Xt = self.transform(X)
-        return self.model.predict(Xt)
+        if y is None:
+            if self.model_fitted_:
+                return self.model.predict(Xt[self.selected_features])
+            else:
+                print('Error: Model is not fitted yet. Please call fit_predict() first')
+                return X
+        else:
+            if not self.model_fitted_:
+                if self.model_type != 'regression':
+                    yt = self.y_encoder.transform(y)
+                else:
+                    yt = y
+                self.model.fit(Xt[self.selected_features], yt)
+            return self.model.predict(Xt[self.selected_features])
 ##############################################################################
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from itertools import cycle
@@ -281,7 +316,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 def MAPE(y_true, y_pred): 
   y_true, y_pred = np.array(y_true), np.array(y_pred)
   return np.mean(np.abs((y_true - y_pred) / np.maximum(np.ones(len(y_true)), np.abs(y_true))))*100
-
+################################################################################
 def print_regression_metrics(y_true, y_preds, verbose=0):
     try:
         each_rmse = np.sqrt(mean_squared_error(y_true, y_preds))
@@ -298,7 +333,10 @@ def print_regression_metrics(y_true, y_preds, verbose=0):
             if verbose:
                 print('    WAPE = %0.0f%%, Bias = %0.1f%%' %(100*np.sum(np.abs(y_true-y_preds))/np.sum(y_true), 
                             100*np.sum(y_true-y_preds)/np.sum(y_true)))
-                print('    MAPE = %0.0f%%' %(100*MAPE(y_true, y_preds)))
+                mape = 100*MAPE(y_true, y_preds)
+                print('    MAPE = %0.0f%%' %(mape))
+                if mape > 100:
+                    print('\tHint: high MAPE: try np.log(y) instead of (y).')
         print('    R-Squared = %0.0f%%' %(100*r2_score(y_true, y_preds)))
         if not verbose:
             plot_regression(y_true, y_preds, chart='scatter')

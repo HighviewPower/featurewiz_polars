@@ -29,6 +29,7 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
     strategy (str): One of ["zeros", "mean", "median"], default="zeros"
     
     Usage:
+    ### IMPORTANT: This works on an entire dataframe. So don't use it for Series or one column ######
     transformer = Polars_MissingFiller(strategy="mean")
     df_filled = transformer.fit_transform(df)
     """
@@ -38,18 +39,28 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
         self.strategy = strategy
         self.fill_values_ = None
         self.float_columns_ = []
+        self.cat_columns_ = []
+        self.int_columns_ = []
+        self.bool_columns_ = []
 
     def fit(self, X: pl.DataFrame, y=None):
+        y_cols = X.columns
         # Identify float columns
-        self.float_columns_ = [
-            col for col in X.columns 
-            if X[col].dtype in (pl.Float32, pl.Float64)
-        ]
-        
+        for y_col in y_cols:
+            if X[y_col].dtype in [pl.Categorical, pl.Utf8]:
+                self.cat_columns_.append(y_col)
+            elif X[y_col].dtype in [pl.Float32, pl.Float64]:
+                self.float_columns_.append(y_col)
+            elif X[y_col].dtype in [pl.Int32, pl.Int64]:
+                self.int_columns_.append(y_col)
+            else:
+                self.bool_columns_.append(y_col)
+
+
         self.fill_values_ = {}
         if self.strategy in ("mean", "median"):
             
-            for col in self.float_columns_:
+            for col in self.float_columns_+self.int_columns_:
                 # Handle both NaN and null values in calculations
                 clean_series = X[col].fill_nan(None)
                 
@@ -59,10 +70,18 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
                     value = clean_series.median()
                 
                 # Fallback to 0 if all values are NaN/null
-                self.fill_values_[col] = value if value is not None else 0.0
+                self.fill_values_[col] = value if value is not None else 0
+
         else:
             for col in self.float_columns_:
-                self.fill_values_[col] = 0.0
+                self.fill_values_[col] = 0
+
+        ### irrespective of strategy, your default fill value are these ##
+        for col in (self.cat_columns_):
+            self.fill_values_[col] = "Null"
+
+        for col in (self.bool_columns_):
+            self.fill_values_[col] = False
 
         self.fitted_ = True
         return self
@@ -71,18 +90,24 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
         check_is_fitted(self, 'fitted_')
         X_transformed = X.clone()
         
-        for col in self.float_columns_:
+        for col in self.float_columns_+self.int_columns_+self.cat_columns_+self.bool_columns_:
             if col not in X.columns:
                 continue  # Skip columns removed since fitting
                 
             fill_value = self.fill_values_.get(col, 0.0)
 
             # Fill both NaN and null values
-            X_transformed = X_transformed.with_columns(
-                pl.col(col)
-                .fill_nan(fill_value)
-                .fill_null(fill_value)
-            )
+            if col in self.float_columns_+self.int_columns_:
+                X_transformed = X_transformed.with_columns(
+                    pl.col(col)
+                    .fill_nan(fill_value)
+                    .fill_null(fill_value)
+                )
+            else:
+                X_transformed = X_transformed.with_columns(
+                    pl.col(col)
+                    .fill_null(fill_value)
+                )
             
         return X_transformed
 
@@ -94,7 +119,7 @@ class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
             return self.fit(X, y).transform(X, y)
 
     def get_feature_names_out(self, input_features=None):
-        return self.float_columns_
+        return self.float_columns_+self.int_columns_+self.cat_columns_+self.bool_columns_
 #####################################################################################################
 class Polars_ColumnEncoder(TransformerMixin):
     """

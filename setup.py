@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="featurewiz_polars",
-    version="0.1",
+    version="0.1.2",
     author="Ram Seshadri",
     # author_email="author@example.com",
     description="Fast feature selection using MRMR algorithm and Polars for large datasets.",
@@ -21,6 +21,8 @@ setuptools.setup(
         "scipy",
         "scikit-learn>=1.2.2",
         "xgboost>=1.6",
+        "polars",
+        "pyarrow",
         "kneed",
     ],
     include_package_data = True,
