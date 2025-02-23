@@ -54,6 +54,26 @@ In short, using Polars with our train-split-validation-driven `recursive_xgboost
     <li><b>Testing and Refinement:</b> Throughout the development, I put in an intense focus on verifying the correctness of the new algorithms and code, making sure that the new algorithm outpeformed my existing classic featurewiz library, particularly in the <code>recursive_xgboost</code> method which I modified.</li>
 </ol>
 
+<h2> Install</h2>
+
+This library is not available on pypi yet. You need to clone the library from source as follows:
+
+```
+cd <new_folder_Destination>
+git clone https://github.com/AutoViML/featurewiz_polars.git
+pip install -r requirements.txt
+cd examples
+python fs_test.py
+```
+
+or download and unzip https://github.com/AutoViML/featurewiz_polars/archive/master.zip
+
+or you can install from source as follows:
+
+```
+pip install git+https://github.com/AutoViML/featurewiz_polars.git
+```
+
 <h2>featurewiz-polars in Pipelines</h2>
 
 <p>I have given you some example pipeline scripts (e.g., <code>fs_test.py</code> and <code>fs_comparison_test.py</code>) for learning to use <code>featurewiz-polars</code> library in a machine learning pipeline. In addition, these examples showcase the difference between this library and the classic featurewiz library as well as with other competing mRMR libraries. Specifically, I show you how to:</p>

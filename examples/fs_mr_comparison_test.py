@@ -31,6 +31,24 @@ print('Data dimensions (rows x cols) = %d dims' %(int(X.shape[0]*X.shape[1])))
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 # select top 10 features using mRMR
 if __name__ == '__main__':
+    import mrmr
+    from mrmr import mrmr_classif
+    start_time = time.time()
+    #mrmr_feats = mrmr_classif(X=X_train, y=y_train, K=int(0.5*n_features))
+    mrmr_feats = mrmr.polars.mrmr_regression(df=df, target_column=target, K=int(0.5*n_features))
+    if model_type == 'Regression':
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+    else:
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train[mrmr_feats], y_train)
+    y_mrmr = model.predict(X_test[mrmr_feats])
+    if model_type == 'Regression':
+        print_regression_metrics(y_test.to_numpy().ravel(), y_mrmr, verbose=1)
+    else:
+        print_classification_metrics(y_test.to_numpy().ravel(), y_mrmr, verbose=1)
+    print(f'{len(mrmr_feats)} features selected by mrmr: {mrmr_feats}')
+    print('Time taken with MRMR = %0.1f seconds' %(
+        time.time()-start_time))
     ##################################################################################
     start_time = time.time()
     mrmr = Featurewiz_MRMR_Model(model_type=model_type, 
