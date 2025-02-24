@@ -28,6 +28,28 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             imputation_strategy='mean', corr_threshold = 0.7,
             classic = False,
             verbose = 0):
+        """
+        Initializes the Featurewiz_MRMR class for feature engineering and selection.
+
+        Args:
+            model_type (str, optional):  The type of model to be built ('classification' or 'regression'). 
+            Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
+
+            encoding_type (str, optional): The type of encoding to apply to categorical features ('woe', 'target', 'ordinal', 'onehot', etc.).  
+            'woe' encoding is only available for classification model types. Defaults to 'target'.
+
+            imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros'). 
+            Determines how missing data will be filled in before feature selection. Defaults to 'mean'.
+
+            corr_threshold (float, optional): The correlation threshold for removing highly correlated features. 
+            Features with a correlation above this threshold will be considered for removal. Defaults to 0.7.
+
+            classic (bool, optional): If true, it implements the original classic featurewiz approach with recursive_xgboost implemented in Polars.
+            If False, implements the train-validation-recursive-xgboost version, which is slower and uses train_test_split schemes to stabilize features.
+
+            verbose (int, optional): Controls the verbosity of the output during feature selection.  
+            0 for minimal output, 1 for more detailed information and 2 for very detailed info. Defaults to 0.
+        """            
         self.model_type = model_type.lower()
         self.encoding_type = encoding_type.lower()
         self.imputation_strategy = imputation_strategy.lower()
@@ -71,13 +93,47 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.feature_selection = feature_selection
         self.y_encoder = y_encoder
 
-    def _check_pandas(self, X):
-        if isinstance(X, pd.DataFrame):
-            return pl.from_pandas(X)
+    def _check_pandas(self, XX):
+        """
+        Converts Pandas DataFrames/Series to Polars DataFrames.
+
+        Args:
+            XX (pd.DataFrame, pd.Series, or pl.DataFrame): The input data.
+
+        Returns:
+            pl.DataFrame: A Polars DataFrame. If the input was already a Polars DataFrame, it is returned unchanged.
+
+        Notes:
+            - This method checks if the input data (XX) is a Pandas DataFrame or Series.
+            - If it is, it converts the data to a Polars DataFrame using `pl.from_pandas()`.
+            - If the input is already a Polars DataFrame or is of a different type, it is returned without modification.
+        """
+        if isinstance(XX, pd.DataFrame) or isinstance(XX, pd.Series):
+            return pl.from_pandas(XX)
         else:
-            return X
+            return XX
 
     def fit(self, X, y):
+        """
+        Fits the Featurewiz_MRMR class to the input data. This performs the core feature engineering and selection steps.
+
+        Args:
+            X (pd.DataFrame or pl.DataFrame): The input feature data.  Can be a Pandas or Polars DataFrame.
+            y (pd.Series or pl.Series): The target variable. Can be a Pandas or Polars Series.
+
+        Returns:
+            self: Returns an instance of self after fitting.
+
+        Raises:
+            TypeError: If X or y are not Polars DataFrames/Series.
+
+        Notes:
+            - Internally, this method:
+                1. Fits the feature selection pipeline to the data.
+                2. Fits the y converter (encoder) to the target variable.
+                3. Stores the trained preprocessing and featurewiz pipelines for later use in `transform` and `predict`.
+                4. Extracts the names of the selected features from featurewiz.
+        """
         start_time = time.time()
         X = self._check_pandas(X)
         y = self._check_pandas(y)
@@ -91,7 +147,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.featurewiz_pipeline = self.feature_selection[-1]
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection[-1][-1].get_feature_names_out()
-        print('\nPolars Featurewiz MRMR completed. Time taken  = %0.1f seconds' %(time.time()-start_time))
+        print('\nFeaturewiz Polars MRMR completed. Time taken  = %0.1f seconds' %(time.time()-start_time))
         self.fitted_ = True
         return self
 
@@ -135,11 +191,36 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
 
 ##############################################################################
 class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name 
+    """
+    Initializes the Featurewiz_MRMR_Model class for feature engineering, selection, and model training.
+
+    Args:
+        model (estimator object, optional): Any machine learning estimator can be sent in to be trained after feature selection.
+        If None, a default estimator will be used (e.g., Random Forest). Defaults to None.
+
+        model_type (str, optional): The type of model to be built ('classification' or 'regression').
+        Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
+
+        encoding_type (str, optional): The type of encoding to apply to categorical features ('target', 'onehot', etc.).
+        'woe' encoding is only available for classification model_types. Defaults to 'target'.
+
+        imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros').
+        Determines how missing data will be filled in before feature selection. Defaults to 'mean'.
+
+        corr_threshold (float, optional): The correlation threshold for removing highly correlated features.
+        Features with a correlation above this threshold will be targeted for removal. Defaults to 0.7.
+
+        classic (bool, optional): If true, it implements the original classic featurewiz library using Polars. 
+        If False, implements train-validation-split-recursive-xgboost version, which is slower and uses train_test_splits to stabilize features.
+
+        verbose (int, optional): Controls the verbosity of the output during feature selection. 
+        0 for minimal output, higher values for more detailed information. Defaults to 0.
+    """    
     def __init__(self, model=None, 
-            model_type='classification', encoding_type='target', 
-            imputation_strategy='mean', corr_threshold = 0.7,
-            classic=False,
-            verbose = 0):
+        model_type='classification', encoding_type='target', 
+        imputation_strategy='mean', corr_threshold = 0.7,
+        classic=False,
+        verbose = 0):
         self.model = model
         self.model_type = model_type.lower()
         self.encoding_type = encoding_type.lower()
@@ -165,13 +246,49 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         self.feature_selection = feature_selection
         self.y_encoder = y_encoder
 
-    def _check_pandas(self, X):
-        if isinstance(X, pd.DataFrame):
-            return pl.from_pandas(X)
+    def _check_pandas(self, XX):
+        """
+        Converts Pandas DataFrames/Series to Polars DataFrames.
+
+        Args:
+            XX (pd.DataFrame, pd.Series, or pl.DataFrame): The input data.
+
+        Returns:
+            pl.DataFrame: A Polars DataFrame. If the input was already a Polars DataFrame, it is returned unchanged.
+
+        Notes:
+            - This method checks if the input data (XX) is a Pandas DataFrame or Series.
+            - If it is, it converts the data to a Polars DataFrame using `pl.from_pandas()`.
+            - If the input is already a Polars DataFrame or is of a different type, it is returned without modification.
+        """
+        if isinstance(XX, pd.DataFrame) or isinstance(XX, pd.Series):
+            return pl.from_pandas(XX)
         else:
-            return X
+            return XX
 
     def fit(self, X, y):
+        """
+        Fits the Featurewiz_MRMR_Model to the input data and trains the specified model.
+
+        Args:
+            X (pd.DataFrame or pl.DataFrame): The input feature data. Can be a Pandas or Polars DataFrame.
+            y (pd.Series or pl.Series): The target variable. Can be a Pandas or Polars Series.
+
+        Returns:
+            self: Returns an instance of self after fitting.
+
+        Raises:
+            TypeError: If X or y are not Polars DataFrames/Series.
+
+        Notes:
+            - This method performs the following steps:
+                1. Converts X and y to Polars DataFrames if they are Pandas DataFrames.
+                2. Fits the feature selection pipeline to the data using `self.feature_selection.fit(X, y)`.
+                3. Fits the target encoder to the target variable using `self.y_encoder.fit(y)`.
+                4. If a model was not provided during initialization, a default RandomForestRegressor (for regression) or RandomForestClassifier (for classification) is created.
+                5. Trains the model using the selected features: `self.model.fit(X[self.selected_features], y)`.
+                6. Sets `self.model_fitted_` to True to indicate that the model has been trained.
+        """
         start_time = time.time()
         X = self._check_pandas(X)
         y = self._check_pandas(y)
@@ -217,6 +334,28 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
             return Xt, yt
 
     def fit_transform(self, X, y):
+        """
+        Fits the Featurewiz_MRMR_Model to the input data, transforms the data, and fits the model to the transformed data. This is a combined operation for convenience.
+
+        Args:
+            X (pd.DataFrame or pl.DataFrame): The input feature data. Can be a Pandas or Polars DataFrame.
+            y (pd.Series or pl.Series): The target variable. Can be a Pandas or Polars Series.
+
+        Returns:
+            tuple: A tuple containing the transformed feature data (Xt) and the transformed target variable (yt).
+
+        Raises:
+            TypeError: If X or y are not Pandas or Polars DataFrames/Series when classic=True.
+
+        Notes:
+            - This method performs the following steps:
+                1. Converts X and y to Polars DataFrames if they are Pandas DataFrames.
+                2. Fits the feature selection pipeline and trains the model using `self.fit(X, y)`.
+                3. Transforms the feature data using `self.transform(X)` to apply the feature selection.
+                4. Transforms the target variable (y) using the `self.y_encoder` if the model type is classification.
+                5. Fits the model to the transformed feature data and target variable: `self.model.fit(Xt[self.selected_features], yt)`.
+                6. Sets `self.model_fitted_` to True to indicate that the model has been trained.
+        """
         X = self._check_pandas(X)
         y = self._check_pandas(y)
         self.fit(X, y)
@@ -230,6 +369,29 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         return Xt, yt
 
     def fit_predict(self, X, y):
+        """
+        Fits the Featurewiz_MRMR_Model to the input data and then makes predictions on the same data. This combines training and prediction for convenience.
+
+        Args:
+            X (pd.DataFrame or pl.DataFrame): The input feature data. Can be a Pandas or Polars DataFrame.
+            y (pd.Series or pl.Series): The target variable. Can be a Pandas or Polars Series.
+
+        Returns:
+            np.ndarray: An array of predictions made by the trained model.
+
+        Raises:
+            ValueError: If the `model` argument was set to `None` during initialization. A model must be provided (either explicitly or by allowing the default model to be created) for predictions to be made.
+            TypeError: If X or y are not Pandas or Polars DataFrames/Series when classic=True.
+
+        Notes:
+            - This method performs the following steps:
+                1. Converts X and y to Polars DataFrames if they are Pandas DataFrames.
+                2. Fits the feature selection pipeline and trains the model using `self.fit(X, y)`.
+                3. Transforms the feature data using `self.transform(X)` to apply the feature selection.
+                4. Transforms the target variable (y) using the `self.y_encoder` if the model type is classification.
+                5. Fits the model to the transformed feature data and target variable.
+                6. Makes predictions on the transformed feature data using the trained model: `self.model.predict(Xt[self.selected_features])`.
+        """
         X = self._check_pandas(X)
         y = self._check_pandas(y)
         self.fit(X, y)
@@ -314,10 +476,43 @@ def print_regression_model_stats(actuals, predicted, verbose=0):
 ################################################################################
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 def MAPE(y_true, y_pred): 
-  y_true, y_pred = np.array(y_true), np.array(y_pred)
-  return np.mean(np.abs((y_true - y_pred) / np.maximum(np.ones(len(y_true)), np.abs(y_true))))*100
+    """
+    Calculates the Mean Absolute Percentage Error (MAPE).
+
+    Args:
+        y_true (array-like): The true (actual) values.
+        y_pred (array-like): The predicted values.
+
+    Returns:
+        float: The MAPE value, expressed as a percentage.
+
+    Notes:
+        - MAPE is a common metric for evaluating the accuracy of forecasting models.
+        - The function handles potential division-by-zero errors by replacing zero values in `y_true` with 1, ensuring a stable calculation.
+        - The formula used is: `mean(abs((y_true - y_pred) / max(1, abs(y_true)))) * 100`
+    """    
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.ones(len(y_true)), np.abs(y_true))))*100
 ################################################################################
 def print_regression_metrics(y_true, y_preds, verbose=0):
+    """
+    Prints a comprehensive set of regression metrics to evaluate model performance.
+
+    Args:
+        y_true (array-like): The true (actual) values.
+        y_preds (array-like): The predicted values.
+        verbose (int, optional): Controls the level of output. If 1, prints detailed metrics. 
+        If 0, prints a summary and generates a scatter plot. Defaults to 0.
+
+    Returns:
+        float: The Root Mean Squared Error (RMSE). Returns np.inf if an error occurs during calculation.
+
+    Notes:
+        - This function calculates and prints RMSE, Normalized RMSE, MAE, WAPE, Bias, MAPE, and R-Squared.
+        - If `verbose` is set to 0, it generates a scatter plot of the true vs. predicted values using `plot_regression()`.
+        - If there are zero values in `y_true`, it will print a warning that MAPE is not available and still calculates WAPE and Bias.
+        - It handles potential exceptions during metric calculation and prints an error message if one occurs.
+    """
     try:
         each_rmse = np.sqrt(mean_squared_error(y_true, y_preds))
         if verbose:
@@ -535,29 +730,4 @@ def print_classification_metrics(y_test, y_preds, y_probas='', verbose=0):
         print('Could not print classification metrics due to %s.' %e)
         return 0.0
 ######################################################################################################
-def split_polars_dataframe(df, target_column_name, test_size=0.2):
-	# 1. Generate a random sample index for the training set
-	train_fraction = 1-test_size  # 80% for training, 20% for testing
-	n_rows = df.height
-	train_size = int(n_rows * train_fraction)
 
-	print("Splitting Polars dataframe using Polars native functions...")
-	train_df = df.slice(0,train_size)
-	test_df = df.slice(train_size)
-
-	# 3. Separate features (X) and target (y) for both sets
-	X_train_pl = train_df.drop([target_column_name]) # Drop target and row_nr for features
-	y_train_pl = train_df[target_column_name]
-	X_test_pl = test_df.drop([target_column_name])   # Drop target and row_nr for features
-	y_test_pl = test_df[target_column_name]
-
-	print("\nX_train_pl (Polars DataFrame - Features - Training Set):")
-	print(X_train_pl.shape)
-	print("\ny_train_pl (Polars Series - Target - Training Set):")
-	print(y_train_pl.shape)
-	print("\nX_test_pl (Polars DataFrame - Features - Testing Set):")
-	print(X_test_pl.shape)
-	print("\ny_test_pl (Polars Series - Target - Testing Set):")
-	print(y_test_pl.shape)
-	return (X_train_pl, X_test_pl, y_train_pl, y_test_pl)
-######################################################################################################

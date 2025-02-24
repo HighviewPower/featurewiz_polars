@@ -20,96 +20,120 @@ import copy
 import pdb
 from collections import defaultdict
 ###########################################################################################
+import polars as pl
+from sklearn.base import BaseEstimator, TransformerMixin
 class Polars_MissingTransformer(BaseEstimator, TransformerMixin):
     """
-    A scikit-learn compatible transformer for filling null and NaN values in Polars DataFrames.
-    Handles "float" columns only. Ignores integers and categoricals which are handled by another transformer.
-    
-    Parameters:
-    strategy (str): One of ["zeros", "mean", "median"], default="zeros"
-    
-    Usage:
-    ### IMPORTANT: This works on an entire dataframe. So don't use it for Series or one column ######
-    transformer = Polars_MissingFiller(strategy="mean")
-    df_filled = transformer.fit_transform(df)
+    A scikit-learn compatible transformer for filling null/NaN values in Polars DataFrames.
+    - Fills numerical columns using specified strategy (zeros/mean/median)
+    - Fills dates with earliest date found (or 1970-01-01 if all null)
+    - Fills boolean columns with False
+    - Fills categorical/string columns with "missing"
     """
     def __init__(self, strategy="zeros"):
         assert strategy in ["zeros", "mean", "median"], \
             "Invalid strategy. Choose from: zeros, mean, median"
         self.strategy = strategy
         self.fill_values_ = None
+        self.dtypes_ = {}
         self.float_columns_ = []
         self.cat_columns_ = []
         self.int_columns_ = []
         self.bool_columns_ = []
+        self.date_columns_ = []
 
     def fit(self, X: pl.DataFrame, y=None):
-        y_cols = X.columns
-        # Identify float columns
-        for y_col in y_cols:
-            if X[y_col].dtype in [pl.Categorical, pl.Utf8]:
-                self.cat_columns_.append(y_col)
-            elif X[y_col].dtype in [pl.Float32, pl.Float64]:
-                self.float_columns_.append(y_col)
-            elif X[y_col].dtype in [pl.Int32, pl.Int64]:
-                self.int_columns_.append(y_col)
-            else:
-                self.bool_columns_.append(y_col)
-
-
+        # Reset all column lists
+        self.float_columns_ = []
+        self.cat_columns_ = []
+        self.int_columns_ = []
+        self.bool_columns_ = []
+        self.date_columns_ = []
+        self.dtypes_ = {}
         self.fill_values_ = {}
-        if self.strategy in ("mean", "median"):
+
+        # Categorize columns and store dtypes
+        for col in X.columns:
+            dtype = X[col].dtype
+            self.dtypes_[col] = dtype
             
-            for col in self.float_columns_+self.int_columns_:
-                # Handle both NaN and null values in calculations
+            if dtype in (pl.Categorical, pl.Utf8):
+                self.cat_columns_.append(col)
+            elif dtype in (pl.Float32, pl.Float64):
+                self.float_columns_.append(col)
+            elif dtype in (pl.Int32, pl.Int64):
+                self.int_columns_.append(col)
+            elif dtype in (pl.Date, pl.Datetime):  # Fixed date detection
+                self.date_columns_.append(col)
+            elif dtype == pl.Boolean:
+                self.bool_columns_.append(col)
+
+        # Numerical columns (float + int)
+        numerical_cols = self.float_columns_ + self.int_columns_
+        if self.strategy in ("mean", "median"):
+            for col in numerical_cols:
                 clean_series = X[col].fill_nan(None)
-                
                 if self.strategy == "mean":
                     value = clean_series.mean()
                 else:
                     value = clean_series.median()
-                
-                # Fallback to 0 if all values are NaN/null
                 self.fill_values_[col] = value if value is not None else 0
-
         else:
-            for col in self.float_columns_:
+            for col in numerical_cols:
                 self.fill_values_[col] = 0
 
-        ### irrespective of strategy, your default fill value are these ##
-        for col in (self.cat_columns_):
-            self.fill_values_[col] = "Null"
+        # Date columns (handle both Date and Datetime)
+        for col in self.date_columns_:
+            min_date = X.select(pl.col(col).min()).to_series()[0]
+            if min_date is None:
+                # Fallback to epoch start with correct dtype
+                if self.dtypes_[col] == pl.Date:
+                    self.fill_values_[col] = pl.date(1970, 1, 1)
+                else:
+                    self.fill_values_[col] = pl.datetime(1970, 1, 1)
+            else:
+                self.fill_values_[col] = min_date
 
-        for col in (self.bool_columns_):
+        # Categorical/string columns
+        for col in self.cat_columns_:
+            self.fill_values_[col] = "missing"  # Changed from "Null"
+
+        # Boolean columns
+        for col in self.bool_columns_:
             self.fill_values_[col] = False
 
-        self.fitted_ = True
         return self
 
     def transform(self, X: pl.DataFrame, y=None) -> pl.DataFrame:
-        check_is_fitted(self, 'fitted_')
-        X_transformed = X.clone()
-        
-        for col in self.float_columns_+self.int_columns_+self.cat_columns_+self.bool_columns_:
-            if col not in X.columns:
-                continue  # Skip columns removed since fitting
-                
-            fill_value = self.fill_values_.get(col, 0.0)
-
-            # Fill both NaN and null values
-            if col in self.float_columns_+self.int_columns_:
-                X_transformed = X_transformed.with_columns(
-                    pl.col(col)
-                    .fill_nan(fill_value)
-                    .fill_null(fill_value)
-                )
-            else:
-                X_transformed = X_transformed.with_columns(
-                    pl.col(col)
-                    .fill_null(fill_value)
-                )
+        expressions = []
+        for col in self.fill_values_:
+            fill_value = self.fill_values_[col]
             
-        return X_transformed
+            if col in self.float_columns_ + self.int_columns_:
+                expr = pl.col(col).fill_nan(fill_value).fill_null(fill_value)
+            elif col in self.date_columns_:
+                # Find first non-null value
+                first_valid = (
+                    X.filter(pl.col(col).is_not_null())
+                    .get_column(col)
+                    .first()
+                )
+                
+                if first_valid is not None:
+                    self.fill_values_[col] = first_valid
+                else:
+                    # Fallback to default date string
+                    self.fill_values_[col] = "1970-01-01"  # Or your preferred default
+
+                # Inside transform()
+                expr = pl.col(col).fill_null(self.fill_values_[col])
+                
+            else:
+                expr = pl.col(col).fill_null(fill_value)
+            
+            expressions.append(expr.alias(col))
+        
+        return X.with_columns(expressions)
 
     def fit_transform(self, X, y=None):
         try:
