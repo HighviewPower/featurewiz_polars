@@ -19,13 +19,16 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
 
     Inputs:
     - encoding_type: can be "target", "woe" or "ordinal"
-    - categorical_features = you can set it to "auto" or provide it explicit list of features you want handled
+    - categorical_features = you can set it to "auto" or provide an explicit list of feature names
+                you want handled using this cat encoder.
     - handle_unknown: must be either one of ['value', 'error']
     - unknown_value: must be None or float value.
     """
-    def __init__(self, encoding_type='target', categorical_features='auto', 
-        handle_unknown='value', unknown_value=None,
+    def __init__(self, model_type, encoding_type='target', 
+        categorical_features='auto', 
+        handle_unknown='value', unknown_value=None, 
         sparse=False, drop_first=False):
+        self.model_type = model_type
         self.encoding_type = encoding_type
         self.categorical_features = categorical_features
         self.handle_unknown = handle_unknown
@@ -36,9 +39,9 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
         self.one_hot_categories_ = {}  # Store categories for one-hot encoding
 
         # Add validation for new parameters
-        if encoding_type not in ['woe', 'target', 'ordinal', 'onehot']:
+        if self.encoding_type not in ['woe', 'target', 'ordinal', 'onehot']:
             raise ValueError(f"Invalid encoding_type: '{encoding_type}'. Must be 'woe', 'target', 'ordinal' or 'onehot'.")
-        if handle_unknown not in ['value', 'error']:
+        if self.handle_unknown not in ['value', 'error']:
             raise ValueError(f"Invalid handle_unknown: '{handle_unknown}'. Must be 'value' or 'error'.")
         if self.encoding_type == 'woe' and self.unknown_value is not None and not isinstance(self.unknown_value, float):
              raise ValueError(f"unknown_value for WoE encoding must be a float or None, got {type(self.unknown_value)}")
@@ -69,45 +72,96 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
         else:
             y_pl = pl.Series(y)
 
-
-        if self.categorical_features == 'auto':
-            categorical_cols = [col for col in X.columns if X[col].dtype in [pl.Categorical, pl.Utf8]] # Detect String or Categorical columns
-        else:
+        #### Find categorical feature names here ########
+        if isinstance(self.categorical_features, list):
             categorical_cols = self.categorical_features
             for col in categorical_cols:
                 if col not in X.columns:
                     raise ValueError(f"Your input categorical_features column '{col}' not found in your DataFrame.")
-
-
-        self.categorical_feature_names_ = copy.deepcopy(categorical_cols)
-        self.encoders_ = {} # Dictionary to store encoding mappings
-
-        if not isinstance(X, pl.DataFrame):
-            raise ValueError("Input 'X' must be a Polars DataFrame.")
-
-        # Existing feature detection logic
-        if self.categorical_features == 'auto':
-            categorical_cols = [col for col in X.columns if X[col].dtype in [pl.Categorical, pl.Utf8]]
         else:
-            categorical_cols = self.categorical_features
+            if self.categorical_features == 'auto':
+                categorical_cols = [col for col in X.columns if X[col].dtype in [pl.Categorical, pl.Utf8]] # Detect String or Categorical columns
+            else:
+                raise ValueError(f"Your input for categorical_features must be either auto or a list of features.")
 
-        self.categorical_feature_names_ = categorical_cols
-        
+        self.encoders_ = {} # Dictionary to store encoding mappings
+        self.categorical_feature_names_ = copy.deepcopy(categorical_cols)
+
+        if self.encoding_type == 'woe':
+            # Make sure it is a binary classification problem. Otherwise ignore.
+            if y.n_unique() != 2:
+                raise ValueError("WoE encoding requires binary classification targets")
+
+            if y.dtype == pl.String:
+                ### weight of evidence for string classes is processed differently
+
+                # Get target classes dynamically
+                positive_class, negative_class = y.unique().sort().to_list()
+                target_name = y.name
+                
+                # Combine features and target
+                df = X.with_columns(y.alias(target_name))
+                
+                # Calculate global statistics using proper LazyFrame syntax
+                global_stats = df.lazy().select(
+                    pl.col(target_name).filter(pl.col(target_name) == positive_class).count().alias("global_events"),
+                    pl.col(target_name).filter(pl.col(target_name) == negative_class).count().alias("global_non_events")
+                ).collect()
+                
+                total_events = global_stats["global_events"][0]
+                total_non_events = global_stats["global_non_events"][0]
+
+
         if self.encoding_type == 'onehot':
-
+            # Calculate category-level statistics
             # Store categories for each feature
             self.one_hot_categories_ = {
                 col: X[col].unique().sort().to_list()
                 for col in categorical_cols
                 }
 
-        else:
-            for feature in categorical_cols:
-                if self.encoding_type == 'woe':
-                    if self.model_type != 'regresssion':
-                        print('Weight of evidence encoding cannot be used in Regression. Please try using target encoding instead. Returning')
-                        return self
-                    # Weight of Evidence Encoding (Polars Implementation)
+        elif self.encoding_type == 'woe':
+            if self.model_type == 'regression':
+                print('Weight of evidence encoding cannot be used in Regression. Please try using another encoding instead. Returning')
+                return self
+                # Weight of Evidence Encoding (Polars Implementation)
+            if y.dtype == pl.String:
+                #### WoE encoding is different for string Y classes                        
+                for feature in categorical_cols:
+                    # Calculate category-level statistics
+                    category_stats = (
+                        df.lazy()
+                        .group_by(feature)
+                        .agg(
+                            pl.count().alias("total"),
+                            pl.col(target_name).filter(pl.col(target_name) == positive_class).count().alias("events"),
+                            pl.col(target_name).filter(pl.col(target_name) == negative_class).count().alias("non_events")
+                        )
+                        .collect()
+                    )
+                    
+                    # Add epsilon smoothing (Laplace smoothing)
+                    epsilon = 1e-7
+                    woe_mapping = (
+                        category_stats
+                        .with_columns(
+                            (
+                                ((pl.col("events") + epsilon) / (total_events + 2*epsilon)).log()
+                                - ((pl.col("non_events") + epsilon) / (total_non_events + 2*epsilon)).log()
+                            ).alias("woe")
+                        )
+                        .select(feature, "woe")
+                        .to_pandas()
+                        .set_index(feature)["woe"]
+                        .to_dict()
+                    )
+                    
+                    self.encoders_[feature] = woe_mapping
+
+            else:
+                ### WoE encoding is different for numeric y variables ####
+                for feature in self.categorical_features:
+                # Calculate feature-level encoders
                     event_count = X.group_by(feature).agg(pl.count().alias('count'), pl.sum(pl.Series(y_pl) == 1).alias('event_count')) # Explicit pl.col()
                     total_event = y_pl.sum()
                     total_non_event = len(y_pl) - total_event
@@ -121,33 +175,34 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
 
                     self.encoders_[feature] = woe_mapping
 
-
-                elif self.encoding_type == 'target':
-                    # Target Encoding - you need both X and y for target encoding and it can work for both model-types
-                    df = pl.concat([X, y.to_frame()], how='horizontal')
-                    dfx = df.group_by(feature).agg(pl.mean(y.name))  
-                    dfx = dfx.rename({y_pl.name:'target_mean'}) 
-                    target_mapping = dfx.to_pandas().set_index(feature).to_dict()['target_mean']
-                    #target_mapping = X.group_by(feature).agg(pl.mean(pl.Series(y_pl)).alias('target_mean')).set_index(feature).to_dict()['target_mean'] 
-                    self.encoders_[feature] = target_mapping
-
-
-                elif self.encoding_type == 'ordinal':              
-                    # Create and fit individual encoder
-                    encoder = Polars_ColumnEncoder()
-                    encoder.fit(X.get_column(feature))
-                    
-                    # Store encoder with feature name as key
-                    self.encoders_[feature] = encoder
+        elif self.encoding_type == 'target':
+            # Calculate feature-level encoders
+            for feature in categorical_cols:
+                # Target Encoding - you need both X and y for target encoding and it can work for both model-types
+                df = pl.concat([X, y.to_frame()], how='horizontal')
+                dfx = df.group_by(feature).agg(pl.mean(y.name))  
+                dfx = dfx.rename({y_pl.name:'target_mean'}) 
+                target_mapping = dfx.to_pandas().set_index(feature).to_dict()['target_mean']
+                #target_mapping = X.group_by(feature).agg(pl.mean(pl.Series(y_pl)).alias('target_mean')).set_index(feature).to_dict()['target_mean'] 
+                self.encoders_[feature] = target_mapping
 
 
-                else: # Should not happen due to init validation
-                    raise ValueError("Invalid encoding type (internal error).")
+        elif self.encoding_type == 'ordinal':              
+            # Calculate feature-level encoders
+            for feature in categorical_cols:
+                # Create and fit individual encoder
+                encoder = Polars_ColumnEncoder()
+                encoder.fit(X.get_column(feature))
+                
+                # Store encoder with feature name as key
+                self.encoders_[feature] = encoder
+
+
+        else: # Should not happen due to init validation
+            raise ValueError("Invalid encoding type (internal error).")
 
         self.fitted_ = True
         return self
-
-
 
     def transform(self, X, y=None):
         """
@@ -181,6 +236,11 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                     X_transformed = X_transformed.with_columns(
                         encoded_series.alias(feature)
                     )
+            elif self.encoding_type == 'woe':
+                return X.with_columns([
+                    pl.col(feature).replace(encoder, default=0.0).alias(feature)
+                    for feature, encoder in self.encoders_.items()
+                ])
             else:
                 for feature in self.categorical_feature_names_:
                     if feature in self.encoders_:

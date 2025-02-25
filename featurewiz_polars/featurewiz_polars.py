@@ -49,7 +49,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
 
             verbose (int, optional): Controls the verbosity of the output during feature selection.  
             0 for minimal output, 1 for more detailed information and 2 for very detailed info. Defaults to 0.
-        """            
+        """
         self.model_type = model_type.lower()
         self.encoding_type = encoding_type.lower()
         self.imputation_strategy = imputation_strategy.lower()
@@ -66,7 +66,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             ### This is for Regression where no YTransformer is needed ##
             preprocessing_pipeline = Pipeline([
                     ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
+                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
                     ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
                 ])
         else:
@@ -74,7 +74,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             #### You need YTransformer in the X_pipeline becasue featurewiz uses XGBoost which needs a transformed Y. Otherwise error!
             preprocessing_pipeline = Pipeline([
                     ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
+                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
                     ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
                     ('ytransformer', YTransformer()),
                 ])
