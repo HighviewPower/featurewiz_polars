@@ -140,7 +140,8 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
 
         #### Now train the model using the feature union pipeline
         self.feature_selection.fit(X, y)
-        self.y_encoder.fit(y)
+        if self.model_type != 'regression':
+            self.y_encoder.fit(y)
 
         ### If successful save all the pipelines in following variables to use later in transform and predict
         self.preprocessing_pipeline = self.feature_selection[-2]
@@ -169,7 +170,10 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             return self.feature_selection.transform(X)
         else:
             Xt = self.feature_selection.transform(X)
-            yt = self.y_encoder.transform(y)
+            if self.model_type != 'regression':
+                yt = self.y_encoder.transform(y)
+            else:
+                yt = copy.deepcopy(y)
             return Xt, yt
 
     def fit_transform(self, X, y):
@@ -186,7 +190,10 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         """
         self.fit(X, y)
         Xt = self.transform(X)
-        yt = self.y_encoder.transform(y)
+        if self.model_type != 'regression':
+            yt = self.y_encoder.transform(y)
+        else:
+            yt = copy.deepcopy(y)
         return Xt, yt
 
 ##############################################################################

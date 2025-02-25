@@ -1,5 +1,7 @@
 <h1>featurewiz-polars</h1><h2>Blazing fast feature engineering and selection using mRMR and Polars</h2>
 
+![featurewiz_polars_logo](./images/featurewiz_polars_taking_off.jpg)
+
 <h3>Project Description</h3>
 
 Supercharge your AI engineering pipelines with `featurewiz-polars`, a new library built on the classic `featurewiz` library, enhanced for high-performance feature engineering and selection using <b>Polars DataFrames</b>. 
@@ -78,9 +80,23 @@ pip install git+https://github.com/AutoViML/featurewiz_polars.git
 
 <h3>Feeding data into featurewiz-polars</h3>
 
-To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_comparison_test.py` script allows you to compare the performance of `featurewiz-polars` against the classic `featurewiz` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. 
+To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_lazytransform_test.py` script allows you to compare the performance of `featurewiz-polars` against the `lazytransform` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. 
 
-If you prefer working in a Jupyter Notebook, here is a code snippet to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`.
+If you prefer working in a Jupyter Notebook or Colab, here are direct links to work in Colab with featurewiz-polars:
+
+## Open In Colab Notebooks
+
+Anybody can open a copy of my Github-hosted notebooks within Colab. To make it easier I have created `Open-in-Colab` links to those GitHub-hosted notebooks below:
+
+<h4>Featurewiz-Polars Test Notebook</h4>
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AutoViML/featurewiz_polars/blob/main/examples/featurewiz-polars-test.ipynb)
+
+<h4>Featurewiz-Polars vs classic featurewiz comparison test</h4>
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AutoViML/featurewiz_polars/blob/main/examples/fw_polars_vs_featurewiz_test.ipynb)
+
+I have also provided code snippets to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`.
 
 <ul>   
 
