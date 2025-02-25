@@ -21,7 +21,7 @@ setuptools.setup(
         "scipy",
         "scikit-learn>=1.2.2",
         "xgboost>=1.6",
-        "polars",
+        "polars>=1.23.0",
         "pyarrow",
         "kneed",
     ],
