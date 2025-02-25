@@ -119,6 +119,26 @@ To help you quickly get started with the `featurewiz-polars` library, I've provi
 
 </ul>
 
+<h3>Arguments for featurewiz_polars Pipeline</h3>
+
+The `Featurewiz_MRMR_Model` class initializes the pipeline with a built-in Random Forest estimator (which you can change - see below) for building data pipelines that use the feature engineering, selection, and model training capabilities of Polars. You need to upload your data into Polars DataFrames and then start calling these pipelines.
+
+#### Arguments:
+
+*   **`model`** (estimator object, *optional*): Any machine learning estimator can be passed in to be trained after feature selection. If `None`, a default estimator (Random Forest) will be used. Defaults to `None`.
+
+*   **`model_type`** (str, *optional*): The type of model to be built (`'classification'` or `'regression'`). Determines the appropriate preprocessing and feature selection strategies. Defaults to `'classification'`.
+
+*   **`encoding_type`** (str, *optional*): The type of encoding to apply to categorical features (`'target'`, `'onehot'`, etc.).  `'woe'` encoding is only available for classification model types. Defaults to `'target'`.
+
+*   **`imputation_strategy`** (str, *optional*): The strategy for handling missing values (`'mean'`, `'median'`, `'zeros'`). Determines how missing data will be filled in before feature selection. Defaults to `'mean'`.
+
+*   **`corr_threshold`** (float, *optional*): The correlation threshold for removing highly correlated features. Features with a correlation above this threshold will be targeted for removal. Defaults to `0.7`.
+
+*   **`classic`** (bool, *optional*): If `True`, it implements the original classic `featurewiz` library using Polars. If `False`, implements the train-validation-split-recursive-xgboost version, which is faster and uses train/validation splits to stabilize features. Defaults to `False`.
+
+*   **`verbose`** (int, *optional*): Controls the verbosity of the output during feature selection. `0` for minimal output, higher values for more detailed information. Defaults to `0`.
+
 <h3>Old Method vs. New Method</h3>
 
 **Select either the old featurewiz method or the new method** using the `classic` argument in the new library: (e.g., if you set `classic`=True, you will get features similar to the old feature selection method). If you set it to False, you will use the new feature selection method. I would suggest you try both methods to see which set of features works well for your dataset.<br>
