@@ -76,9 +76,11 @@ or<br>
 pip install git+https://github.com/AutoViML/featurewiz_polars.git
 ```
 
-<h3>Using featurewiz-polars</h3>
+<h3>Feeding data into featurewiz-polars</h3>
 
-To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_comparison_test.py` script allows you to compare the performance of `featurewiz-polars` against the original `featurewiz` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. If you prefer working in a Jupyter Notebook, I can also provide a code snippet to illustrate the library's usage within that environment.
+To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_comparison_test.py` script allows you to compare the performance of `featurewiz-polars` against the classic `featurewiz` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. 
+
+If you prefer working in a Jupyter Notebook, here is a code snippet to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`.
 
 <ul>   
 
@@ -96,28 +98,68 @@ To help you quickly get started with the `featurewiz-polars` library, I've provi
     X = df[predictors]
     y = df[target] 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    ### Call Featurewiz_MRMR for doing feature selection only.
-    ### Assuming a classification use case where you have to transform a categorical "y" into numeric "y".
-
-    from featurewiz_polars import Featurewiz_MRMR
-    mrmr = Featurewiz_MRMR(model_type="Classification",
-                corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
-    X_transformed, y_transformed = mrmr.fit_transform(X_train, y_train)
-    X_test_transformed = mrmr.transform(X_test)
-    y_test_transformed = mrmr.y_encoder.transform(y_test)
-
-    ### Call Featurewiz_MRMR_Model for doing feature selection as well as training a model simultaneously.
-    ### Assuming this is a Regression use case. So "y" is assumed to be numeric already.
-
-    from featurewiz_polars import Featurewiz_MRMR_Model
-    from xgboost import XGBRegressor
-    mrmr_model = Featurewiz_MRMR_Model(model_type="Regression", model=XGBRegressor(),
-                corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
-    X_transformed, y_transformed = mrmr.fit_transform(X_train, y_train)
-    y_pred = mrmr.predict(X_test) ## this will handle both transform and predict simultaneously
-
 </ul>
+
+## Feature Selection with `featurewiz-polars`: Two Approaches
+
+This section demonstrates two distinct ways to use the `featurewiz-polars` library: `feature selection only`, and `feature selection combined with model training`.
+
+### 1. Feature Selection Only with `Featurewiz_MRMR`
+
+This approach is useful when you want to pre-process your data and select the most relevant features *before* feeding them into a separate model training pipeline. It's particularly helpful if you want to experiment with different models using the same selected features.
+
+Here's how to use `Featurewiz_MRMR` for feature selection in a classification scenario, where the categorical target variable "y" needs to be transformed into a numerical representation:
+
+```python
+from featurewiz_polars import Featurewiz_MRMR
+
+# Initialize Featurewiz_MRMR for classification with specified parameters
+mrmr = Featurewiz_MRMR(model_type="Classification",
+            corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
+
+# Fit and transform the training data (X_train, y_train)
+X_transformed, y_transformed = mrmr.fit_transform(X_train, y_train)
+
+# Transform the test data (X_test)
+X_test_transformed = mrmr.transform(X_test)
+
+# Transform the test target variable (y_test)
+y_test_transformed = mrmr.y_encoder.transform(y_test)
+```
+
+**Key Points:**
+
+*   We use the `Featurewiz_MRMR` class for feature selection.
+*   The `fit_transform` method is used to fit the feature selection process on the training data and simultaneously transform it.
+*   We use the `transform` method separately to transform the test data, applying the same feature selection learned from the training data.
+*   The `y_encoder` is used to transform the target variable if it's categorical.
+
+### 2. Feature Selection and Model Training with `Featurewiz_MRMR_Model`
+
+This approach combines feature selection and model training into a single pipeline. It's useful when you want to streamline the entire process and train a model directly on the selected features.
+
+Here's how to use `Featurewiz_MRMR_Model` for both feature selection and model training in a regression scenario. It assumes that the target variable "y" is already numerical.
+
+```python
+from featurewiz_polars import Featurewiz_MRMR_Model
+from xgboost import XGBRegressor
+
+# Initialize Featurewiz_MRMR_Model for regression with an XGBoost Regressor
+mrmr_model = Featurewiz_MRMR_Model(model_type="Regression", model=XGBRegressor(),
+            corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
+
+# Fit and transform the training data (X_train, y_train)
+X_transformed, y_transformed = mrmr_model.fit_transform(X_train, y_train)
+
+# Make predictions on the test data (X_test) - handles both transform and predict simultaneously
+y_pred = mrmr_model.predict(X_test)
+```
+
+**Key Points:**
+
+*   We use the `Featurewiz_MRMR_Model` class to combine feature selection and model training.
+*   The `fit_transform` method is used to fit the feature selection process *and* train the specified model on the training data.
+*   The `predict` method handles both transforming the test data using the learned feature selection and making predictions with the trained model, streamlining the entire process.
 
 <h3>Arguments for featurewiz_polars Pipeline</h3>
 
