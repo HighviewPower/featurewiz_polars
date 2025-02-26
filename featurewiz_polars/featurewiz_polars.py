@@ -442,6 +442,36 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
                     yt = y
                 self.model.fit(Xt[self.selected_features], yt)
             return self.model.predict(Xt[self.selected_features])
+
+    def predict_proba(self, X, y=None) :
+        """
+        Predicts on the data by selecting the top MRMR features in Polars DataFrame.
+
+        Args:
+            X (Polars DataFrame): Feature DataFrame of shape (n_samples, n_features)
+            y: optional since it may not be available for test data
+
+        Returns:
+            Polars DataFrame: Transformed DataFrame with selected features, shape (n_samples, n_selected_features)
+        """
+        check_is_fitted(self, 'fitted_')
+        X = self._check_pandas(X)
+        Xt = self.transform(X)
+        if y is None:
+            if self.model_fitted_:
+                if self.model_type != 'regression':
+                    return self.model.predict_proba(Xt[self.selected_features])
+            else:
+                print('Error: Model is not fitted yet. Please call fit_predict() first')
+                return Xt
+        else:
+            if not self.model_fitted_:
+                if self.model_type != 'regression':
+                    yt = self.y_encoder.transform(y)
+                else:
+                    yt = y
+                self.model.fit(Xt[self.selected_features], yt)
+            return self.model.predict_proba(Xt[self.selected_features])
 ##############################################################################
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from itertools import cycle
