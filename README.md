@@ -129,8 +129,8 @@ Here's how to use `Featurewiz_MRMR` for feature selection in a classification sc
 ```python
 from featurewiz_polars import Featurewiz_MRMR
 
-# Initialize Featurewiz_MRMR for classification with specified parameters
-mrmr = Featurewiz_MRMR(model_type="Classification",
+# Initialize Featurewiz_MRMR for classification with XGBoost doing feature selection (estimator=None)
+mrmr = Featurewiz_MRMR(model_type="Classification", estimator=None,
             corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
 
 # Fit and transform the training data (X_train, y_train)
@@ -146,6 +146,7 @@ y_test_transformed = mrmr.y_encoder.transform(y_test)
 **Key Points:**
 
 *   We use the `Featurewiz_MRMR` class for feature selection.
+*   The `estimator` argument is used to select the model doing the feature selection. You can try other estimators. Currently, only XGBoost, RandomForest and LightGBM are allowed. CatBoost is available but giving an error with Polars. 
 *   The `fit_transform` method is used to fit the feature selection process on the training data and simultaneously transform it.
 *   We use the `transform` method separately to transform the test data, applying the same feature selection learned from the training data.
 *   The `y_encoder` is used to transform the target variable if it's categorical.
@@ -183,7 +184,13 @@ The `Featurewiz_MRMR_Model` class initializes the pipeline with a built-in Rando
 
 #### Arguments:
 
-*   **`model`** (estimator object, *optional*): Any machine learning estimator can be passed in to be trained after feature selection. If `None`, a default estimator (Random Forest) will be used. Defaults to `None`.
+*   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
+        You can try other estimators but currently, only XGBoost, RandomForest and LightGBM are allowed. 
+        CatBoost is available but giving an error with Polars. 
+
+*   **`model`** (estimator object, *optional*): This estimator is used in the pipeline to train a new model `after feature selection`.
+        If `None`, a default estimator (Random Forest) will be trained after selection. Defaults to `None`. 
+        This `model` argument can be different from the `estimator` argument above.
 
 *   **`model_type`** (str, *optional*): The type of model to be built (`'classification'` or `'regression'`). Determines the appropriate preprocessing and feature selection strategies. Defaults to `'classification'`.
 

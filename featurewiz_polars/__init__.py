@@ -22,9 +22,5 @@ else:
 version_number = __version__
 print("""%s featurewiz_polars %s. Use the following syntax:
  >> from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
- >> wiz = Featurewiz_MRMR(model_type='Classification')
- >> X_transformed, y_transformed = wiz.fit_transform(X_train, y_train)
- >> X_test_transformed = wiz.transform(X_test)
- >> print(wiz.selected_features)
     """ %(module_type, version_number))
 ################################################################################

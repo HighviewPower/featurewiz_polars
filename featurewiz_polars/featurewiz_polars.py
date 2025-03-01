@@ -26,7 +26,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
     def __init__(self, 
             model_type='classification', encoding_type='target', 
             imputation_strategy='mean', corr_threshold = 0.7,
-            classic = False,
+            classic = False, estimator=None,
             verbose = 0):
         """
         Initializes the Featurewiz_MRMR class for feature engineering and selection.
@@ -47,6 +47,9 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             classic (bool, optional): If true, it implements the original classic featurewiz approach with recursive_xgboost implemented in Polars.
             If False, implements the train-validation-recursive-xgboost version, which is slower and uses train_test_split schemes to stabilize features.
 
+            estimator (estimator object, optional): If None, it implements the original XGBoost approach with recursive feature elimination.
+            Your options are: randomforest or catboost or lightgbm models for feature selection. Defaults to None.
+
             verbose (int, optional): Controls the verbosity of the output during feature selection.  
             0 for minimal output, 1 for more detailed information and 2 for very detailed info. Defaults to 0.
         """
@@ -60,6 +63,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.feature_selection = None
         self.selected_features = []
         self.classic = classic
+        self.estimator = estimator
         # MRMR is different for regression and classification
         if self.model_type == 'regression':
             
@@ -80,7 +84,8 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
                 ])
 
         featurewiz_pipeline = Pipeline([
-                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_threshold, model_type=self.model_type, classic=self.classic, verbose=self.verbose)),
+                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_threshold, estimator=self.estimator,
+                    model_type=self.model_type, classic=self.classic, verbose=self.verbose)),
                 ])
 
         feature_selection = Pipeline([
@@ -202,8 +207,13 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
     Initializes the Featurewiz_MRMR_Model class for feature engineering, selection, and model training.
 
     Args:
-        model (estimator object, optional): Any machine learning estimator can be sent in to be trained after feature selection.
-        If None, a default estimator will be used (e.g., Random Forest). Defaults to None.
+    *   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
+        You can try other estimators but currently, only XGBoost, RandomForest and LightGBM are allowed. 
+        CatBoost is available but giving an error with Polars. 
+
+    *   **`model`** (estimator object, *optional*): This estimator is used in the pipeline to train a new model `after feature selection`.
+        If `None`, a default estimator (Random Forest) will be trained after selection. Defaults to `None`. 
+        This `model` argument can be different from the `estimator` argument above.
 
         model_type (str, optional): The type of model to be built ('classification' or 'regression').
         Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
@@ -226,7 +236,7 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
     def __init__(self, model=None, 
         model_type='classification', encoding_type='target', 
         imputation_strategy='mean', corr_threshold = 0.7,
-        classic=False,
+        classic=False, estimator=None,
         verbose = 0):
         self.model = model
         self.model_type = model_type.lower()
@@ -240,12 +250,13 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         self.selected_features = []
         self.model_fitted_ = False
         self.classic = classic
+        self.estimator = estimator
         # MRMR is same for regression and classification
         feature_selection = Featurewiz_MRMR(model_type=self.model_type, 
             encoding_type=self.encoding_type, 
             imputation_strategy=self.imputation_strategy, 
             corr_threshold =self.corr_threshold,
-            classic=self.classic,
+            classic=self.classic, estimator=self.estimator,
             verbose=self.verbose)
 
         ### You need to separately create a column encoder because you will need this for transforming y_test later!

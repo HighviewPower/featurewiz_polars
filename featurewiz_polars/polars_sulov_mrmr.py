@@ -24,7 +24,7 @@ from polars import selectors as cs
 class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name 
 
     def __init__(self, corr_threshold: float = 0.7, ## minimum 0.7 is recommended
-                 model_type = 'classification', classic = True,
+                 model_type = 'classification', classic = True, estimator=None,
                  verbose: int = 0):
         self.corr_threshold = corr_threshold
         self.model_type = model_type.lower()
@@ -36,6 +36,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.fitted_ = False
         self.random_state = 12
         self.classic = classic
+        self.estimator = estimator
 
     def fit(self, X: pl.DataFrame, y: pl.Series) -> pl.DataFrame:
         """
@@ -242,7 +243,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         feature_votes = defaultdict(int)
         
             # Create importance tiers based on initial full model
-        full_model = self._get_xgboost_model(y)
+        full_model = self._get_xgboost_model()
         full_model.fit(X, y)
         base_importances = full_model.feature_importances_
         ### Beware setting it at 70% or below: too permissive. Best perf is at 85%.
@@ -289,12 +290,12 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             if len(chunk_features) < 2: continue
             
             # Train on feature chunk
-            model = self._get_xgboost_model(y)
+            model = self._get_xgboost_model()
             model.set_params(**base_params)
             model.fit(X[chunk_features], y)
             
             # Get normalized importances
-            importances = pd.Series(model.feature_importances_, index=chunk_features)
+            importances = pd.Series(self._get_model_importances(model), index=chunk_features)
             max_imp = importances.max()
             if max_imp == 0.05: continue  # Skip chunks with no importance
             if self.verbose > 0:
@@ -439,11 +440,15 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         else:
             return X
 
-    def _get_xgboost_model(self, y: np.ndarray):
+    def _get_xgboost_model(self):
         """Get appropriate XGBoost model based on target type"""
-        if self.model_type == 'classification':
-            return XGBClassifier(n_estimators=100, random_state=self.random_state)
-        return XGBRegressor(n_estimators=100, random_state=self.random_state)
+        if self.estimator is None :
+            if self.model_type == 'classification':
+                return XGBClassifier(n_estimators=100, random_state=self.random_state)
+            else:
+                return XGBRegressor(n_estimators=100, random_state=self.random_state)
+        else:
+            return self.estimator
 
     def transform(self, X, y=None):
         """
@@ -492,6 +497,21 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
     def get_feature_names_out(self):
         return self.selected_features
 
+    def _get_model_importances(self, full_model):
+        """Get feature importances from a trained model"""  
+        if 'randomforest' in str(full_model).split("(")[0].lower():
+            ## This is for XGBoost models ###
+            model_imp = full_model.feature_importances_
+        elif 'xgb' in str(full_model).split("(")[0].lower():
+            ## This is for XGBoost models ###
+            model_imp = full_model.feature_importances_
+        elif 'lgbm' in str(full_model).split("(")[0].lower():
+            model_imp = full_model.booster_.feature_importance(importance_type='gain')
+        elif 'catboost' in str(full_model).split("(")[0].lower():
+            model_imp = full_model.get_feature_importance()
+        else:
+            raise ValueError('Cannot recognize your input estimator. Please use one of the following: xgboost, lightgbm, catboost, randomforest')
+        return model_imp
 
     def recursive_xgboost_with_validation(self, X: pl.DataFrame, y: pl.Series, num_runs: int = 3, 
                 validation_size: float = 0.2) -> List[str]:
@@ -524,9 +544,9 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
 
 
             # Create importance tiers based on initial full model - TRAIN SPLIT ONLY
-            full_model = self._get_xgboost_model(y_train_pl) # Use y_train for fitting
+            full_model = self._get_xgboost_model() 
             full_model.fit(X_train_pl, y_train_pl) # Fit on train split
-            base_importances = full_model.feature_importances_
+            base_importances = self._get_model_importances(full_model)
 
             tier_thresholds = np.percentile(base_importances, [20, 80])
 
@@ -570,12 +590,12 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                     print('chunk features: ', chunk_features)
 
                 # Train on feature chunk - TRAIN SPLIT ONLY
-                model = self._get_xgboost_model(y_train_pl) # Use y_train for fitting
+                model = self._get_xgboost_model() # Use y_train for fitting
                 model.set_params(**base_params)
                 model.fit(X_train_pl[chunk_features], y_train_pl) # Fit on train split
 
                 # Get normalized importances
-                importances = pd.Series(model.feature_importances_, index=chunk_features)
+                importances = pd.Series(self._get_model_importances(model), index=chunk_features)
                 max_imp = importances.max()
                 if max_imp == 0.05: continue  # Skip chunks with no importance
                 if self.verbose > 1:
