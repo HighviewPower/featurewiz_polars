@@ -80,10 +80,12 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                     raise ValueError(f"Your input categorical_features column '{col}' not found in your DataFrame.")
         else:
             if self.categorical_features == 'auto':
-                categorical_cols = [col for col in X.columns if X[col].dtype in [pl.Categorical, pl.Utf8]] # Detect String or Categorical columns
+                # Detect String or Categorical columns or Boolean columns
+                categorical_cols = [col for col in X.columns if X[col].dtype in [pl.Categorical, pl.Utf8, pl.Boolean] ]
             else:
                 raise ValueError(f"Your input for categorical_features must be either auto or a list of features.")
 
+        ### self.categorical_features will continue to contain the option "auto", etc. ##
         self.encoders_ = {} # Dictionary to store encoding mappings
         self.categorical_feature_names_ = copy.deepcopy(categorical_cols)
 
@@ -110,7 +112,6 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                 
                 total_events = global_stats["global_events"][0]
                 total_non_events = global_stats["global_non_events"][0]
-
 
         if self.encoding_type == 'onehot':
             # Calculate category-level statistics
@@ -159,20 +160,42 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                     self.encoders_[feature] = woe_mapping
 
             else:
-                ### WoE encoding is different for numeric y variables ####
-                for feature in self.categorical_features:
-                # Calculate feature-level encoders
-                    event_count = X.group_by(feature).agg(pl.count().alias('count'), pl.sum(pl.Series(y_pl) == 1).alias('event_count')) # Explicit pl.col()
-                    total_event = y_pl.sum()
-                    total_non_event = len(y_pl) - total_event
+                df = X.with_columns(y_pl.alias('__target__'))
+                
+                for feature in self.categorical_feature_names_:
+                    event_count = (
+                        df.lazy()
+                        .group_by(feature)
+                        .agg(
+                            pl.count().alias('count'),
+                            pl.col('__target__').sum().alias('event_count')
+                        )
+                        .collect()
+                    )
+                    
+                    total_event = df['__target__'].sum()
+                    total_non_event = len(df) - total_event
 
-                    woe_mapping = event_count.with_columns(
-                        non_event_count = pl.col('count') - pl.col('event_count'),
-                        event_rate = (pl.col('event_count') + 1e-9) / (total_event + 1e-7), # Add small epsilon to avoid div by zero and log(0)
-                        non_event_rate = (pl.col('non_event_count') + 1e-9) / (total_non_event + 1e-7),
-                        woe = (pl.col('event_rate') / pl.col('non_event_rate')).log()
-                    ).select([pl.col(feature), pl.col('woe')]).set_index(feature).to_dict()['woe'] # Explicit pl.col()
-
+                    # Adjusted Laplace smoothing
+                    epsilon = 0.5  # Changed from 1e-9 to 0.5
+                    woe_mapping = (
+                        event_count
+                        .with_columns(
+                            non_event_count=pl.col('count') - pl.col('event_count')
+                        )
+                        .with_columns(
+                            event_rate=(pl.col('event_count') + 0.5) / (total_event + 1.0),
+                            non_event_rate=(pl.col('non_event_count') + 0.5) / (total_non_event + 1.0)
+                        )
+                        .with_columns(
+                            (pl.col('event_rate') / pl.col('non_event_rate')).log().alias('woe')
+                        )
+                        .select(feature, 'woe')
+                        .to_pandas()
+                        .set_index(feature)['woe']
+                        .to_dict()
+                    )
+                    
                     self.encoders_[feature] = woe_mapping
 
         elif self.encoding_type == 'target':
@@ -180,7 +203,7 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
             for feature in categorical_cols:
                 # Target Encoding - you need both X and y for target encoding and it can work for both model-types
                 df = pl.concat([X, y.to_frame()], how='horizontal')
-                dfx = df.group_by(feature).agg(pl.mean(y.name))  
+                dfx = df.group_by(feature).agg(pl.mean(y.name))
                 dfx = dfx.rename({y_pl.name:'target_mean'}) 
                 target_mapping = dfx.to_pandas().set_index(feature).to_dict()['target_mean']
                 #target_mapping = X.group_by(feature).agg(pl.mean(pl.Series(y_pl)).alias('target_mean')).set_index(feature).to_dict()['target_mean'] 
@@ -236,11 +259,15 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                     X_transformed = X_transformed.with_columns(
                         encoded_series.alias(feature)
                     )
+
             elif self.encoding_type == 'woe':
-                return X.with_columns([
-                    pl.col(feature).replace(encoder, default=0.0).alias(feature)
-                    for feature, encoder in self.encoders_.items()
-                ])
+                exprs = []
+                for feature in self.encoders_:
+                    encoder_dict = self.encoders_[feature]
+                    expr = pl.col(feature).replace(encoder_dict, default=self.unknown_value)
+                    exprs.append(expr.alias(feature))
+                return X.with_columns(exprs)
+
             else:
                 for feature in self.categorical_feature_names_:
                     if feature in self.encoders_:

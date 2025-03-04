@@ -15,7 +15,7 @@ from collections import defaultdict
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 import copy
-from collections import Counter
+from collections import Counter, OrderedDict
 from sklearn.model_selection import train_test_split
 import pdb
 from polars import selectors as cs
@@ -301,8 +301,8 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             if self.verbose > 0:
                 print('feature importances: \n', importances)
 
-            # Select features with importance >50% of mean importance
-            threshold = np.mean(importances)*0.5
+            # Select features with importance >100% of mean importance
+            threshold = np.mean(importances)*1.0
             #selected = [f for f, imp in zip(features, importance) if imp >= threshold]
             #threshold = max_imp * 0.80 ### keep this as high as possible to avoid unnecessary features
             selected = importances[importances >= threshold].index.tolist()
@@ -329,19 +329,24 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             cutoff = len(votes)
         
         # Ensure minimum feature retention
-        min_features = max(2, int(total_features * 0.1))
-        if len(votes) <= 1:
-            final_features =  initial_features
-        else:
-            final_features = votes.index[:max(cutoff, min_features)].tolist()
-            final_features.reverse()
-            if self.verbose:
-                print(f'final features:\n{final_features}')
-            ### This final next step is going to boost your selectiion further with high tier features
-            if self.verbose:
-                print(f'Top tier features combined with recursive features: \n{initial_features}')
-            final_features = list(np.unique(final_features + initial_features))
-        
+        min_features = max(1, int(total_features * 0.5))
+        voted_features = votes[votes>1].index.tolist()
+        if len(voted_features) >= min_features:
+            voted_features = votes.index[:max(cutoff, min_features)].tolist()
+            voted_features.reverse()
+
+        ### This final next step is needed to boost selection performance!
+        if self.verbose:
+            print(f'Initial features from full model fit are: \n{initial_features}')        
+
+        ### Putting voted features doesnt work that well here so I commented it out
+        #final_features = list(OrderedDict.fromkeys(voted_features+initial_features).keys())
+
+        ### Putting initial features works much better hence that is used here
+        final_features = list(OrderedDict.fromkeys(initial_features+voted_features).keys())
+
+        if self.verbose:
+            print(f'Final selected features after Recursive features are combined with Initial features::\n{final_features}')
         return final_features
 
     def _get_upper_triangle(self, corr_matrix: pl.DataFrame) -> pl.DataFrame:
@@ -602,7 +607,12 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                     print('Run ', run_idx+1, ' feature importances: \n', importances)
 
                 # Select features with importance >80% of max
-                threshold = max_imp * 0.80
+                if len(chunk_features) > 5:
+                    ### slightly stricter threshold for large datasets
+                    threshold = max_imp * 0.90
+                else:
+                    ### slightly looser threshold for small datasets
+                    threshold = max_imp * 0.80
                 selected = importances[importances >= threshold].index.tolist()
 
                 if self.verbose > 0:
@@ -625,39 +635,48 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         if len(votes) > 10:
             # Find natural cutoff point using knee detection
             kneedle = KneeLocator(range(len(votes)), votes.values, curve='convex')
-            cutoff = kneedle.knee or len(votes)//2
+            cutoff = kneedle.knee
         else:
-            cutoff = len(votes)
-
+            cutoff = len(votes)//2
+        
         # Ensure minimum feature retention
-        min_features = max(2, int(total_features * 0.1))
-        if len(votes) <= 1:
-            final_features =  initial_features # Fallback to initial high tier features
-        else:
-            final_features = votes.index[:max(cutoff, min_features)].tolist()
-            final_features.reverse() # Original code had this reverse, keeping for consistency
-            if self.verbose:
-                print(f'final features (after cutoff):\n{final_features}')
+        min_features = max(1, int(total_features * 0.5))
+        
+        #### This is how you select the highest voted features that are better than average!
+        voted_features = votes[votes>max(1,votes.mean())].index.tolist()
+        if len(voted_features) >= min_features:
+            voted_features = votes.index[:min(cutoff, min_features)].tolist()
+            voted_features.reverse()
 
-            if self.verbose:
-                print(f'initial features combined with final features: \n{initial_features} to boost performance')
-            final_features = list(np.unique(initial_features + final_features)) # Union with initial high tier
+        if self.verbose:
+            print(f'voted_features selects features from runs based on highest score: \n{voted_features}')        
 
-        # Final feature list is now a UNION of features from all runs
-        final_features_union = set()
+        # multirun_features is now a UNION of features from all runs
+        multirun_features = set()
         for feature_set in all_selected_features_runs:
-            final_features_union.update(feature_set)
-        final_features_union = list(final_features_union)
+            multirun_features.update(feature_set)
+        multirun_features = list(multirun_features)
+        if self.verbose:
+            print(f'multi run selects {len(multirun_features)} features from all runs: \n{multirun_features}')        
 
-        ### see if combining initial and final union helps boost performance
-        final_features = list(np.unique(initial_features + final_features_union)) # Union with initial high tier
-
-
-        if self.verbose > 0:
-            print(f"\nFeatures selected in each run:")
-            for i, feats in enumerate(all_selected_features_runs):
-                print(f"Run {i+1}: {sorted(list(feats))}")
-            print(f"\nFinal Feature Set (Union of runs): {sorted(final_features)}")
+        ### select whichever subset is smaller since it is likely to be better features!
+        if len(voted_features) < len(multirun_features):
+            initial_union = voted_features
+        else:
+            initial_union = multirun_features
 
 
-        return final_features # Return the union of features from all runs
+        ### This final next step is needed to boost selection performance!
+        if self.verbose:
+            print(f' Model fit with all features adds {len(initial_features)} initial features: \n{initial_features}')        
+
+        #### Putting voted features first works very well so I made it an OrderedDict
+        final_union = list(OrderedDict.fromkeys(voted_features+initial_features).keys())
+
+        ### Putting Initial features first doesn't work that well - so I commented it out
+        #final_union = list(OrderedDict.fromkeys(initial_features+voted_features).keys())
+
+        if self.verbose:
+            print(f'\nFinal list of combined features from multiple runs are:\n{final_union}')
+
+        return final_union
