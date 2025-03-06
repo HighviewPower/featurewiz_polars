@@ -9,7 +9,6 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from scipy.stats import spearmanr
-from sklearn.model_selection import train_test_split
 # Needed imports
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier # Or LightGBM, XGBoost, etc.
@@ -19,7 +18,7 @@ from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new
 from .polars_other_transformers import YTransformer, Polars_MissingTransformer, Polars_ColumnEncoder
 from .polars_sulov_mrmr import Sulov_MRMR
 import time
-import matplotlib.pyplot as plt
+import copy
 import pdb
 #############################################################################
 class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name 
@@ -97,6 +96,17 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         y_encoder = Polars_ColumnEncoder()
         self.feature_selection = feature_selection
         self.y_encoder = y_encoder
+        self.estimator_name = self._get_model_name(estimator)
+
+    def _get_model_name(self, mod):
+        if 'catboost' in str(mod).lower():
+            return 'CatBoost'
+        elif 'lgbm' in str(mod).lower():
+            return 'LightGBM'
+        elif 'randomforest' in str(mod).lower():
+            return "RandomForest"
+        else:
+            return 'XGBoost'
 
     def _check_pandas(self, XX):
         """
@@ -153,7 +163,8 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.featurewiz_pipeline = self.feature_selection[-1]
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection[-1][-1].get_feature_names_out()
-        print('\nFeaturewiz Polars MRMR completed. Time taken  = %0.1f seconds' %(time.time()-start_time))
+        print(f'\nFeaturewiz-Polars feature selection with {self.estimator_name} estimator completed.')
+        print('Time taken  = %0.1f seconds' %(time.time()-start_time))
         self.fitted_ = True
         return self
 
@@ -172,9 +183,9 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         check_is_fitted(self, 'fitted_')
         X = self._check_pandas(X)
         if y is None:
-            return self.feature_selection.transform(X)
+            return self.feature_selection.transform(X)[self.selected_features]
         else:
-            Xt = self.feature_selection.transform(X)
+            Xt = self.feature_selection.transform(X)[self.selected_features]
             if self.model_type != 'regression':
                 yt = self.y_encoder.transform(y)
             else:
@@ -194,7 +205,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             Polars Series: Transformed Series if y is given
         """
         self.fit(X, y)
-        Xt = self.transform(X)
+        Xt = self.transform(X)[self.selected_features]
         if self.model_type != 'regression':
             yt = self.y_encoder.transform(y)
         else:
@@ -208,12 +219,12 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
 
     Args:
     *   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
-        You can try other estimators but currently, only XGBoost, RandomForest and LightGBM are allowed. 
-        CatBoost is available but giving an error with Polars. 
+        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
 
     *   **`model`** (estimator object, *optional*): This estimator is used in the pipeline to train a new model `after feature selection`.
         If `None`, a default estimator (Random Forest) will be trained after selection. Defaults to `None`. 
         This `model` argument can be different from the `estimator` argument above.
+        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
 
         model_type (str, optional): The type of model to be built ('classification' or 'regression').
         Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
@@ -263,6 +274,17 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         y_encoder = Polars_ColumnEncoder()
         self.feature_selection = feature_selection
         self.y_encoder = y_encoder
+        self.model_name = self._get_model_name(model)
+
+    def _get_model_name(self, mod):
+        if 'catboost' in str(mod).lower():
+            return 'CatBoost'
+        elif 'lgbm' in str(mod).lower():
+            return 'LightGBM'
+        elif 'randomforest' in str(mod).lower():
+            return "RandomForest"
+        else:
+            return 'XGBoost'
 
     def _check_pandas(self, XX):
         """
@@ -325,6 +347,8 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection.selected_features
         self.fitted_ = True
+        print(f'\nFeaturewiz-Polars MRMR completed training with {self.model_name} Model.')
+        print('Total time taken  = %0.1f seconds' %(time.time()-start_time))
         return self
 
     def transform(self, X, y=None):
@@ -346,10 +370,19 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
             y = self._check_pandas(y)
             Xt = self.feature_selection.transform(X)
             yt = self.y_encoder.transform(y)
-            self.model.fit(Xt[self.selected_features], yt)
+            self.model = self._fit_different_models(Xt[self.selected_features], yt)
             ### The model is fitted now so self.model_fitted_ is set to True
             self.model_fitted_ = True
             return Xt, yt
+
+    def _fit_different_models(self, X, y):
+        if 'catboost' in str(self.model).lower():
+            self.model.fit(X.to_pandas(), y.to_pandas())
+        elif 'lgbm' in str(self.model).lower():
+            self.model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', feature_name='auto')
+        else:
+            self.model.fit(X, y)
+        return self.model
 
     def fit_transform(self, X, y):
         """
@@ -382,7 +415,7 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
             yt = self.y_encoder.transform(y)
         else:
             yt = y
-        self.model.fit(Xt[self.selected_features], yt)
+        self.model = self._fit_different_models(Xt, yt)
         self.model_fitted_ = True
         return Xt, yt
 
@@ -419,7 +452,7 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
                 yt = self.y_encoder.transform(y)
             else:
                 yt = y
-            self.model.fit(Xt[self.selected_features], yt)
+            self.model = self._fit_different_models(Xt[self.selected_features], yt)
             self.model_fitted_ = True
             return self.model.predict(Xt[self.selected_features])
         else:
@@ -441,7 +474,12 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         Xt = self.transform(X)
         if y is None:
             if self.model_fitted_:
-                return self.model.predict(Xt[self.selected_features])
+                if 'catboost' in str(self.model).lower():
+                    return self.model.predict(Xt.to_pandas())
+                elif 'lgbm' in str(self.model).lower():
+                    return self.model.predict(Xt.to_pandas())
+                else:
+                    return self.model.predict(Xt)
             else:
                 print('Error: Model is not fitted yet. Please call fit_predict() first')
                 return X
@@ -451,8 +489,14 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
                     yt = self.y_encoder.transform(y)
                 else:
                     yt = y
-                self.model.fit(Xt[self.selected_features], yt)
-            return self.model.predict(Xt[self.selected_features])
+                ### Now fit the model and predict since it is not fitted yet ###
+                self.model = self._fit_different_models(Xt, yt)
+                if 'catboost' in str(self.model).lower():
+                    return self.model.predict(Xt.to_pandas())
+                elif 'lgbm' in str(self.model).lower():
+                    return self.model.predict(Xt.to_pandas())
+                else:
+                    return self.model.predict(Xt)
 
     def predict_proba(self, X, y=None) :
         """
@@ -471,7 +515,10 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         if y is None:
             if self.model_fitted_:
                 if self.model_type != 'regression':
-                    return self.model.predict_proba(Xt[self.selected_features])
+                    if 'catboost' in str(self.model).lower():
+                        return self.model.predict_proba(Xt[self.selected_features].to_pandas())
+                    else:
+                        return self.model.predict_proba(Xt[self.selected_features])
             else:
                 print('Error: Model is not fitted yet. Please call fit_predict() first')
                 return Xt
@@ -481,301 +528,11 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
                     yt = self.y_encoder.transform(y)
                 else:
                     yt = y
-                self.model.fit(Xt[self.selected_features], yt)
-            return self.model.predict_proba(Xt[self.selected_features])
-##############################################################################
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from itertools import cycle
-def print_regression_model_stats(actuals, predicted, verbose=0):
-    """
-    This program prints and returns MAE, RMSE, MAPE.
-    If you like the MAE and RMSE to have a title or something, just give that
-    in the input as "title" and it will print that title on the MAE and RMSE as a
-    chart for that model. Returns MAE, MAE_as_percentage, and RMSE_as_percentage
-    """
-    if isinstance(actuals,pd.Series) or isinstance(actuals,pd.DataFrame):
-        actuals = actuals.values
-    if isinstance(predicted,pd.Series) or isinstance(predicted,pd.DataFrame):
-        predicted = predicted.values
-    if len(actuals) != len(predicted):
-        if verbose:
-            print('Error: Number of rows in actuals and predicted dont match. Continuing...')
-        return np.inf
-    try:
-        ### This is for Multi_Label Problems ###
-        assert actuals.shape[1]
-        multi_label = True
-    except:
-        multi_label = False
-    if multi_label:
-        for i in range(actuals.shape[1]):
-            actuals_x = actuals[:,i]
-            try:
-                predicted_x = predicted[:,i]
-            except:
-                predicted_x = predicted[:]
-            if verbose:
-                print('for target %s:' %i)
-            each_rmse = print_regression_metrics(actuals_x, predicted_x, verbose)
-        final_rmse = np.mean(each_rmse)
-    else:
-        final_rmse = print_regression_metrics(actuals, predicted, verbose)
-    return final_rmse
-################################################################################
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-def MAPE(y_true, y_pred): 
-    """
-    Calculates the Mean Absolute Percentage Error (MAPE).
-
-    Args:
-        y_true (array-like): The true (actual) values.
-        y_pred (array-like): The predicted values.
-
-    Returns:
-        float: The MAPE value, expressed as a percentage.
-
-    Notes:
-        - MAPE is a common metric for evaluating the accuracy of forecasting models.
-        - The function handles potential division-by-zero errors by replacing zero values in `y_true` with 1, ensuring a stable calculation.
-        - The formula used is: `mean(abs((y_true - y_pred) / max(1, abs(y_true)))) * 100`
-    """    
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / np.maximum(np.ones(len(y_true)), np.abs(y_true))))*100
-################################################################################
-def print_regression_metrics(y_true, y_preds, verbose=0):
-    """
-    Prints a comprehensive set of regression metrics to evaluate model performance.
-
-    Args:
-        y_true (array-like): The true (actual) values.
-        y_preds (array-like): The predicted values.
-        verbose (int, optional): Controls the level of output. If 1, prints detailed metrics. 
-        If 0, prints a summary and generates a scatter plot. Defaults to 0.
-
-    Returns:
-        float: The Root Mean Squared Error (RMSE). Returns np.inf if an error occurs during calculation.
-
-    Notes:
-        - This function calculates and prints RMSE, Normalized RMSE, MAE, WAPE, Bias, MAPE, and R-Squared.
-        - If `verbose` is set to 0, it generates a scatter plot of the true vs. predicted values using `plot_regression()`.
-        - If there are zero values in `y_true`, it will print a warning that MAPE is not available and still calculates WAPE and Bias.
-        - It handles potential exceptions during metric calculation and prints an error message if one occurs.
-    """
-    try:
-        each_rmse = np.sqrt(mean_squared_error(y_true, y_preds))
-        if verbose:
-            print('    RMSE = %0.3f' %each_rmse)
-            print('    Norm RMSE = %0.0f%%' %(100*np.sqrt(mean_squared_error(y_true, y_preds))/np.std(y_true)))
-            print('    MAE = %0.3f'  %mean_absolute_error(y_true, y_preds))
-        if len(y_true[(y_true==0)]) > 0:
-            if verbose:
-                print('    WAPE = %0.0f%%, Bias = %0.1f%%' %(100*np.sum(np.abs(y_true-y_preds))/np.sum(y_true), 
-                            100*np.sum(y_true-y_preds)/np.sum(y_true)))
-                print('    No MAPE available since zeroes in actuals')
-        else:
-            if verbose:
-                print('    WAPE = %0.0f%%, Bias = %0.1f%%' %(100*np.sum(np.abs(y_true-y_preds))/np.sum(y_true), 
-                            100*np.sum(y_true-y_preds)/np.sum(y_true)))
-                mape = 100*MAPE(y_true, y_preds)
-                print('    MAPE = %0.0f%%' %(mape))
-                if mape > 100:
-                    print('\tHint: high MAPE: try np.log(y) instead of (y).')
-        print('    R-Squared = %0.0f%%' %(100*r2_score(y_true, y_preds)))
-        if not verbose:
-            plot_regression(y_true, y_preds, chart='scatter')
-        return each_rmse
-    except Exception as e:
-        print('Could not print regression metrics due to %s.' %e)
-        return np.inf
-################################################################################
-def print_static_rmse(actual, predicted, start_from=0,verbose=0):
-    """
-    this calculates the ratio of the rmse error to the standard deviation of the actuals.
-    This ratio should be below 1 for a model to be considered useful.
-    The comparison starts from the row indicated in the "start_from" variable.
-    """
-    rmse = np.sqrt(mean_squared_error(actual[start_from:],predicted[start_from:]))
-    std_dev = actual[start_from:].std()
-    if verbose >= 1:
-        print('    RMSE = %0.2f' %rmse)
-        print('    Std Deviation of Actuals = %0.2f' %(std_dev))
-        print('    Normalized RMSE = %0.1f%%' %(rmse*100/std_dev))
-    return rmse, rmse/std_dev
-################################################################################
-from sklearn.metrics import mean_squared_error,mean_absolute_error
-def print_rmse(y, y_hat):
-    """
-    Calculating Root Mean Square Error https://en.wikipedia.org/wiki/Root-mean-square_deviation
-    """
-    mse = np.mean((y - y_hat)**2)
-    return np.sqrt(mse)
-
-def print_mape(y, y_hat):
-    """
-    Calculating Mean Absolute Percent Error https://en.wikipedia.org/wiki/Mean_absolute_percentage_error
-    To avoid infinity due to division by zero, we select max(0.01, abs(actuals)) to show MAPE.
-    """
-    ### Wherever there is zero, replace it with 0.001 so it doesn't result in division by zero
-    perc_err = (100*(np.where(y==0,0.001,y) - y_hat))/np.where(y==0,0.001,y)
-    return np.mean(abs(perc_err))
-    
-def plot_regression(actuals, predicted, chart='scatter'):
-    """
-    This function plots the actuals vs. predicted as a line plot.
-    You can change the chart type to "scatter' to get a scatter plot.
-    """
-    figsize = (10, 10)
-    colors = cycle('byrcmgkbyrcmgkbyrcmgkbyrcmgk')
-    plt.figure(figsize=figsize)
-    if not isinstance(actuals, np.ndarray):
-        actuals = actuals.values
-    dfplot = pd.DataFrame([actuals,predicted]).T
-    dfplot.columns = ['Actual','Forecast']
-    dfplot = dfplot.sort_index()
-    lineStart = actuals.min()
-    lineEnd = actuals.max()
-    if chart == 'line':
-        plt.plot(dfplot)
-    else:
-        plt.scatter(actuals, predicted, color = next(colors), alpha=0.5,label='Predictions')
-        plt.plot([lineStart, lineEnd], [lineStart, lineEnd], 'k-', color = next(colors))
-        plt.xlim(lineStart, lineEnd)
-        plt.ylim(lineStart, lineEnd)
-    plt.xlabel('Actual')
-    plt.ylabel('Predicted')
-    plt.legend()
-    plt.title('Model: Predicted vs Actuals', fontsize=12)
-    plt.show();
-###########################################################################
-from sklearn.metrics import roc_auc_score
-import copy
-from sklearn.metrics import balanced_accuracy_score, classification_report
-import pdb
-def print_sulo_accuracy(y_test, y_preds, y_probas='', verbose=0):
-    """
-    A wrapper function for print_classification_metrics,  meant for compatibility with older featurewiz versions.
-    Usage:
-    print_sulo_accuracy(y_test, y_preds, y_probas, verbose-0)
-    """
-    return print_classification_metrics(y_test, y_preds, y_probas, verbose)
-
-def print_classification_metrics(y_test, y_preds, y_probas='', verbose=0):
-    """
-    Calculate and print classification metrics for single-label, multi-label, and multi-class problems.
-
-    This function computes and displays various metrics such as balanced accuracy score and ROC AUC score 
-    based on the given test labels, predicted labels, and predicted probabilities. It handles different 
-    scenarios including single-label, multi-label, multi-class, and their combinations. Additionally, it 
-    provides detailed classification reports if verbose output is requested.
-
-    Parameters:
-    y_test (array-like): True labels. Should be 1D for single-label and 2D for multi-label problems.
-    y_preds (array-like): Predicted labels. Should match the dimensionality of y_test.
-    y_probas (array-like, optional): Predicted probabilities. Default is an empty string, indicating 
-                                     no probabilities are provided. Should be 2D with probabilities for 
-                                     each class.
-    verbose (int, optional): Verbose level. If set to 1, it prints out detailed classification reports. 
-                             Default is 0, which prints only summary metrics.
-
-    Returns:
-    float: Final average balanced accuracy score across all labels/classes. Returns 0.0 if an exception occurs.
-
-    Raises:
-    Exception: If an error occurs during the calculation or printing of metrics.
-
-    Note:
-    The function is designed to handle various edge cases and different formats of predicted probabilities, 
-    such as those produced by different classifiers or methods like Label Propagation.
-
-    Examples:
-    # For single-label binary classification
-    print_classification_metrics(y_test, y_preds)
-
-    # For multi-label classification with verbose output
-    print_classification_metrics(y_test, y_preds, verbose=1)
-
-    # For single-label classification with predicted probabilities
-    print_classification_metrics(y_test, y_preds, y_probas)
-    """    
-    try:
-        bal_scores = []
-        ####### Once you have detected what problem it is, now print its scores #####
-        if y_test.ndim <= 1: 
-            ### This is a single label problem # we need to test for multiclass ##
-            bal_score = balanced_accuracy_score(y_test,y_preds)
-            print('Bal accu %0.0f%%' %(100*bal_score))
-            if not isinstance(y_probas, str):
-                if y_probas.ndim <= 1:
-                    print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
-                else:
-                    if y_probas.shape[1] == 2:
-                        print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
-                    else:
-                        print('Multi-class ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
-            bal_scores.append(bal_score)
-            if verbose:
-                print(classification_report(y_test,y_preds))
-        elif y_test.ndim >= 2:
-            if y_test.shape[1] == 1:
-                bal_score = balanced_accuracy_score(y_test,y_preds)
-                bal_scores.append(bal_score)
-                print('Bal accu %0.0f%%' %(100*bal_score))
-                if not isinstance(y_probas, str):
-                    if y_probas.shape[1] > 2:
-                        print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas, multi_class="ovr"))
-                    else:
-                        print('ROC AUC = %0.2f' %roc_auc_score(y_test, y_probas[:,1]))
-                if verbose:
-                    print(classification_report(y_test,y_preds))
+                self.model = self._fit_different_models(Xt[self.selected_features], yt)
+            if 'catboost' in str(self.model).lower():
+                return self.model.predict_proba(Xt[self.selected_features].to_pandas())
+            elif 'lgbm' in str(self.model).lower():
+                return self.model.predict_proba(Xt[self.selected_features].to_pandas())
             else:
-                if isinstance(y_probas, str):
-                    ### This is for multi-label problems without probas ####
-                    for each_i in range(y_test.shape[1]):
-                        bal_score = balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])
-                        bal_scores.append(bal_score)
-                        print('    Bal accu %0.0f%%' %(100*bal_score))
-                        if verbose:
-                            print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
-                else:
-                    ##### This is only for multi_label_multi_class problems
-                    num_targets = y_test.shape[1]
-                    for each_i in range(num_targets):
-                        print('    Bal accu %0.0f%%' %(100*balanced_accuracy_score(y_test.values[:,each_i],y_preds[:,each_i])))
-                        if len(np.unique(y_test.values[:,each_i])) > 2:
-                            ### This nan problem happens due to Label Propagation but can be fixed as follows ##
-                            mat = y_probas[each_i]
-                            if np.any(np.isnan(mat)):
-                                mat = pd.DataFrame(mat).fillna(method='ffill').values
-                                bal_score = roc_auc_score(y_test.values[:,each_i],mat,multi_class="ovr")
-                            else:
-                                bal_score = roc_auc_score(y_test.values[:,each_i],mat,multi_class="ovr")
-                        else:
-                            if isinstance(y_probas, dict):
-                                if y_probas[each_i].ndim <= 1:
-                                    ## This is caused by Label Propagation hence you must probas like this ##
-                                    mat = y_probas[each_i]
-                                    if np.any(np.isnan(mat)):
-                                        mat = pd.DataFrame(mat).fillna(method='ffill').values
-                                    bal_score = roc_auc_score(y_test.values[:,each_i],mat)
-                                else:
-                                    bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i][:,1])
-                            else:
-                                if y_probas.shape[1] == num_targets:
-                                    ### This means Label Propagation was used which creates probas like this ##
-                                    bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[:,each_i])
-                                else:
-                                    ### This means regular sklearn classifiers which predict multi dim probas #
-                                    bal_score = roc_auc_score(y_test.values[:,each_i],y_probas[each_i])
-                        print('Target number %s: ROC AUC score %0.0f%%' %(each_i+1,100*bal_score))
-                        bal_scores.append(bal_score)
-                        if verbose:
-                            print(classification_report(y_test.values[:,each_i],y_preds[:,each_i]))
-        final_score = np.mean(bal_scores)
-        if verbose:
-            print("final average balanced accuracy score = %0.2f" %final_score)
-        return final_score
-    except Exception as e:
-        print('Could not print classification metrics due to %s.' %e)
-        return 0.0
-######################################################################################################
-
+                return self.model.predict_proba(Xt[self.selected_features])
+##############################################################################

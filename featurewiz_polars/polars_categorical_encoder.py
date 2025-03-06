@@ -273,18 +273,24 @@ class Polars_CategoricalEncoder(TransformerMixin): # Class name updated to V2
                     if feature in self.encoders_:
                         encoding_map = self.encoders_[feature]
                         if self.handle_unknown == 'value':
-                            unknown_val = self.unknown_value if self.unknown_value is not None else np.nan # Default unknown value to NaN if None provided
-                            X_transformed = X_transformed.with_columns(pl.col(feature).replace(encoding_map, default=unknown_val).alias(feature))
+                            # Default unknown value to -1 if None provided
+                            unknown_val = self.unknown_value if self.unknown_value is not None else -1
+                            X_transformed = X_transformed.with_columns(pl.col(feature).replace(
+                                encoding_map, default=unknown_val).alias(feature))
 
                         elif self.handle_unknown == 'error':
-                            if any(cat not in encoding_map for cat in X_transformed[feature].unique()): # Check for unknown categories
-                                unknown_categories = [cat for cat in X_transformed[feature].unique() if cat not in encoding_map]
+                            # Check for unknown categories
+                            if any(cat not in encoding_map for cat in X_transformed[feature].unique()): 
+                                unknown_categories = [cat for cat in X_transformed[feature].unique() 
+                                                        if cat not in encoding_map]
                                 raise ValueError(f"Unknown categories '{unknown_categories}' encountered in feature '{feature}' during transform.")
-                            X_transformed = X_transformed.with_columns(pl.col(feature).replace(encoding_map).alias(feature))
+                            X_transformed = X_transformed.with_columns(pl.col(feature).replace(
+                                                    encoding_map).alias(feature))
                     else:
                         # Should ideally not reach here if fit and transform are used correctly, but for robustness:
                         if self.handle_unknown == 'value':
-                            X_transformed = X_transformed.with_columns(pl.lit(self.unknown_value).alias(feature)) # Fill with unknown value
+                            # Fill with unknown value
+                            X_transformed = X_transformed.with_columns(pl.lit(self.unknown_value).alias(feature))
                         elif self.handle_unknown == 'error':
                             raise ValueError(f"Feature '{feature}' was specified as categorical but not seen during fit.")
 

@@ -113,6 +113,13 @@ I have also provided code snippets to illustrate how to load a file into `polars
     from sklearn.model_selection import train_test_split
     X = df[predictors]
     y = df[target] 
+
+    ##############  BEWARE WHEN USING SKLEARN TRAIN_TEST_SPLIT WITH POLARS DATA #######################
+    # If you perform train-test split using sklearn gives different random samples each time
+    # So this doesn't work: X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Instead you must split using polars_train_test_split with seed parameter to get same random samples 
+    ####################################################################################################
+    from featurewiz_polars import polars_train_test_split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 </ul>
 

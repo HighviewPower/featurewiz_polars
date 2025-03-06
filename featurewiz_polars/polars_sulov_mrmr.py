@@ -16,10 +16,9 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 import copy
 from collections import Counter, OrderedDict
-from sklearn.model_selection import train_test_split
 import pdb
 from polars import selectors as cs
-
+import pyarrow
 #################################################################################
 class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name 
 
@@ -37,6 +36,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.random_state = 12
         self.classic = classic
         self.estimator = estimator
+        self.model_name = self._get_model_name(estimator)
 
     def fit(self, X: pl.DataFrame, y: pl.Series) -> pl.DataFrame:
         """
@@ -74,7 +74,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         else:
             self.selected_features = sulov_features
         
-        print(f'\nRecursive XGBoost selected Features ({len(self.selected_features)}): {self.selected_features}')
+        print(f'\nRecursive {self.model_name} selected Features ({len(self.selected_features)}): {self.selected_features}')
         self.fitted_ = True
 
         return self
@@ -135,7 +135,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         if self.verbose:
             if len(features_to_remove) == 1:
                 feats_joined = features_to_remove
-            if len(features_to_remove) > 1:
+            if len(features_to_remove) > 0:
                 feats_joined = ', '.join(features_to_remove)
                 print(f"SULOV removed Features ({len(features_to_remove)}): {feats_joined}")
             else:
@@ -244,7 +244,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         
             # Create importance tiers based on initial full model
         full_model = self._get_xgboost_model()
-        full_model.fit(X, y)
+        full_model = self._fit_different_models(full_model, X, y)
         base_importances = full_model.feature_importances_
         ### Beware setting it at 70% or below: too permissive. Best perf is at 85%.
         tier_thresholds = np.percentile(base_importances, [15, 85])
@@ -266,9 +266,14 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             print(f'initial features selected: {initial_features}')
 
         # Dynamic configuration based on feature count
-        iter_limit = max(3, int(total_features/5))  # set this number high to avoid selecting unimportant features
-        top_ratio = 0.05 if total_features > 50 else 0.1
-        top_num = max(2, int(total_features * top_ratio)) ## set this number low to avoid selecting too many
+        if total_features < 20:
+            iter_limit = max(3, int(total_features/3))  # set this number high to avoid selecting unimportant features
+            top_ratio = 0.25
+        else:
+            iter_limit = max(3, int(total_features/5)) ## you can tighten the number of chunks with more features
+            top_ratio = 0.15
+
+        top_num = int(total_features * top_ratio) ## set this number low to avoid selecting too many
         
         # Fixed model parameters for consistency
         base_params = {
@@ -279,74 +284,111 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         }
         if self.verbose > 0:
             print('iter limit', iter_limit)
-        # Chunked feature processing
+
+        #################################################################
+        ####### Iterative feature processing using XGBoost         ######
+        #################################################################
+        iteration = 1
+        earlier_features = []
+        ##### Start getting chunks of features except last round ###
         for i in range(0, total_features, iter_limit):
 
             if self.verbose:
-                print('iteration #', (i+1))
+                print('\nIteration #', (iteration))
 
             chunk_features = sorted_features[i:i+iter_limit]
             #print('chunk features = ', chunk_features)
-            if len(chunk_features) < 2: continue
+            if len(chunk_features) <= 2:
+                chunk_features = earlier_features + chunk_features
             
             # Train on feature chunk
             model = self._get_xgboost_model()
             model.set_params(**base_params)
-            model.fit(X[chunk_features], y)
+            model = self._fit_different_models(model, X[chunk_features], y)
             
             # Get normalized importances
             importances = pd.Series(self._get_model_importances(model), index=chunk_features)
             max_imp = importances.max()
             if max_imp == 0.05: continue  # Skip chunks with no importance
-            if self.verbose > 0:
-                print('feature importances: \n', importances)
 
-            # Select features with importance >100% of mean importance
-            threshold = np.mean(importances)*1.0
-            #selected = [f for f, imp in zip(features, importance) if imp >= threshold]
-            #threshold = max_imp * 0.80 ### keep this as high as possible to avoid unnecessary features
-            selected = importances[importances >= threshold].index.tolist()
-            
-            # Fallback to top N features if threshold too strict
-            if self.verbose > 0:
-                print(f'threshold = {threshold:.3f}, selected features above threshold: {selected}')
+            # Selecting features by threshold with importance >100% of mean importance
+            if total_features <= 25:
+                threshold = np.mean(importances)*1.0
+            else:
+                threshold = np.mean(importances)*0.9
+            ### this is somewhat hit or miss - hence I am commenting out for now!
+            #selected = importances[importances >= threshold].index.tolist()
+            #if self.verbose:
+            #    print('selected by threshold: ', selected)
+
+            ### selecting features by knee location is a very good idea!
+            importances = importances.sort_values(ascending=False)
+            knee_location = KneeLocator(range(len(importances)), importances.values, curve='convex').knee
+            ### if knee location is only 1, select the single feature
+            if knee_location > 1:
+                knee_location +- 1
+            selected = importances[:knee_location].index.tolist()
+
+            if self.verbose:
+                print('sorted features importances in this iteration: \n', importances)
+                print('selected by knee location: ', selected)
             
             # Update votes with exponential weighting (later chunks matter more)
             weight = 1 + (i/(total_features*2))  # 1x to 1.5x weight
             for feat in selected:
                 feature_votes[feat] += weight
+
+            earlier_features = copy.deepcopy(chunk_features)
+            iteration += 1
         
         # Dynamic cutoff using knee detection
         votes = pd.Series(feature_votes).sort_values(ascending=False)
         
         if self.verbose > 0:
-            print('final votes per feature:\n', votes)
-        if len(votes) > 10:
-            # Find natural cutoff point using knee detection
-            kneedle = KneeLocator(range(len(votes)), votes.values, curve='convex')
-            cutoff = kneedle.knee or len(votes)//2
-        else:
-            cutoff = len(votes)
+            print('Final votes per selected feature by given estimator:')
+            print(votes)
         
-        # Ensure minimum feature retention
-        min_features = max(1, int(total_features * 0.5))
-        voted_features = votes[votes>1].index.tolist()
-        if len(voted_features) >= min_features:
-            voted_features = votes.index[:max(cutoff, min_features)].tolist()
-            voted_features.reverse()
+        if self.verbose > 0:
+            print()
+            print('#'*77)
+            print('####### Classic feature selection: Maximum Relevance process explained ######')
+            print('#'*77)
+
+        ### for large datasets, it makes sense to reduce the number of features ###
+        if total_features > 30:
+            ### this is still needed since it calculates the knee using votes
+            min_features = max(1, int(total_features * 0.5))
+            if len(votes) > min_features:
+                # Find natural cutoff point using knee detection
+                cutoff = KneeLocator(range(len(votes)), votes.values, curve='convex').knee
+            else:
+                cutoff = len(votes)//2
+            
+            # Ensure minimum feature retention
+            voted_features = votes[votes>1].index.tolist()
+            ### if you are selecting more than 50% of features in large datasets, cut it down
+            if len(voted_features) >= min_features:
+                voted_features = votes.index[:min(cutoff, min_features)].tolist()
+
+        else:
+            ### this will select all the features that got selected by knee selection
+            voted_features = votes[votes>=1].index.tolist()
+
+        if self.verbose:
+            print(f'Voted: {len(voted_features)} features based on votes >= 1: \n{voted_features}')        
 
         ### This final next step is needed to boost selection performance!
         if self.verbose:
-            print(f'Initial features from full model fit are: \n{initial_features}')        
+            print(f'Initial: {len(initial_features)} feature(s) selected from full model fit are: \n{initial_features}')        
 
-        ### Putting voted features doesnt work that well here so I commented it out
-        #final_features = list(OrderedDict.fromkeys(voted_features+initial_features).keys())
+        ### Putting voted features first works well here too ##
+        final_features = list(OrderedDict.fromkeys(voted_features+initial_features).keys())
 
-        ### Putting initial features works much better hence that is used here
-        final_features = list(OrderedDict.fromkeys(initial_features+voted_features).keys())
+        ### Putting initial features works well but it is almost the same as voted features
+        #final_features = list(OrderedDict.fromkeys(initial_features+voted_features).keys())
 
         if self.verbose:
-            print(f'Final selected features after Recursive features are combined with Initial features::\n{final_features}')
+            print(f'Final: {len(final_features)} features reflect union of best features from all angles:\n{final_features}')
         return final_features
 
     def _get_upper_triangle(self, corr_matrix: pl.DataFrame) -> pl.DataFrame:
@@ -518,6 +560,26 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             raise ValueError('Cannot recognize your input estimator. Please use one of the following: xgboost, lightgbm, catboost, randomforest')
         return model_imp
 
+    def _get_model_name(self, mod):
+        if 'catboost' in str(mod).lower():
+            return 'CatBoost'
+        elif 'lgbm' in str(mod).lower():
+            return 'LightGBM'
+        elif 'randomforest' in str(mod).lower():
+            return "RandomForest"
+        else:
+            return 'XGBoost'
+
+
+    def _fit_different_models(self, model, X, y):
+        if 'catboost' in str(model).lower():
+            model.fit(X.to_pandas(), y.to_pandas())
+        elif 'lgbm' in str(model).lower():
+            model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', feature_name='auto')
+        else:
+            model.fit(X, y)
+        return model
+
     def recursive_xgboost_with_validation(self, X: pl.DataFrame, y: pl.Series, num_runs: int = 3, 
                 validation_size: float = 0.2) -> List[str]:
         """
@@ -531,34 +593,29 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         feature_votes = defaultdict(int)
         all_selected_features_runs = [] # To store features selected in each run
 
+        #################################################################
+        ####### Multi-Fold Splits feature processing using XGBoost ######
+        #################################################################
         for run_idx in range(num_runs):
-            if self.verbose > 0:
-                print(f"\n--- Run {run_idx + 1} ---")
-            if self.model_type == 'classification':
-                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), 
-                    test_size=validation_size, stratify=y.to_pandas(), random_state=self.random_state + run_idx)
-                    # Create train/val split for each run
-            else:
-                X_train, X_val, y_train, y_val = train_test_split(X.to_pandas(), y.to_pandas(), test_size=validation_size,
-                 random_state=self.random_state + run_idx) 
-                    # Create train/val split for each run
-            X_train_pl = pl.DataFrame(X_train) # Convert back to polars if needed within the method for consistency
-            X_val_pl = pl.DataFrame(X_val)
-            y_train_pl = pl.Series(y_train)
-            y_val_pl = pl.Series(y_val)
+            print(f"\n--- Run {run_idx + 1} started ---")
 
+            # You must use Polars train/val split since it ensures that the splits are same every time
+            X_train_pl, X_val, y_train_pl, y_val = polars_train_test_split(X, y, 
+                test_size=validation_size, random_state=self.random_state + run_idx)
 
             # Create importance tiers based on initial full model - TRAIN SPLIT ONLY
             full_model = self._get_xgboost_model() 
-            full_model.fit(X_train_pl, y_train_pl) # Fit on train split
+            full_model = self._fit_different_models(full_model, X_train_pl, y_train_pl)
+
             base_importances = self._get_model_importances(full_model)
 
             tier_thresholds = np.percentile(base_importances, [20, 80])
 
-            if self.verbose > 1: # Increased verbosity for run details
+            ######## Increased verbosity for run details
+            if self.verbose > 1: 
                 print('Run ', run_idx+1, ' base importances: ', base_importances, 'tier_thresholds[1]', tier_thresholds[1])
 
-            # Stratify features into importance tiers
+            ####### Stratify features into importance tiers
             tiers = {
                 'high': [f for f, imp in zip(sorted_features, base_importances)
                         if imp >= tier_thresholds[1]],
@@ -582,22 +639,22 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
 
 
             run_selected_features = set() # Features selected in this run
-
+            iteration = 1
             for i in range(0, total_features, iter_limit):
 
                 if self.verbose > 1:
-                    print('Run ', run_idx+1, ' iteration #', i)
+                    print(f"\n--- Iteration {iteration} started ---")
 
                 chunk_features = sorted_features[i:i+iter_limit]
                 if len(chunk_features) < 2: continue
 
-                if self.verbose:
+                if self.verbose >1:
                     print('chunk features: ', chunk_features)
 
                 # Train on feature chunk - TRAIN SPLIT ONLY
                 model = self._get_xgboost_model() # Use y_train for fitting
                 model.set_params(**base_params)
-                model.fit(X_train_pl[chunk_features], y_train_pl) # Fit on train split
+                model = self._fit_different_models(model, X_train_pl[chunk_features], y_train_pl)
 
                 # Get normalized importances
                 importances = pd.Series(self._get_model_importances(model), index=chunk_features)
@@ -616,7 +673,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                 selected = importances[importances >= threshold].index.tolist()
 
                 if self.verbose > 0:
-                    print('Run ', run_idx+1, ' selected after importance: ', selected)
+                    print(f'Features selected in iteration #{iteration} are:\n', selected)
 
 
                 weight = 1 + (i/(total_features*2))  # 1x to 1.5x weight
@@ -624,14 +681,23 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
                     feature_votes[feat] += weight
                     run_selected_features.add(feat) # Add to set of features selected in this run
 
-            all_selected_features_runs.append(run_selected_features) # Store features selected in this run
+                iteration += 1
 
+            all_selected_features_runs.append(run_selected_features) # Store features selected in this run
 
         # Dynamic cutoff using knee detection - on aggregated votes
         votes = pd.Series(feature_votes).sort_values(ascending=False)
 
         if self.verbose > 0:
-            print('final votes per feature (aggregated over runs):\n', votes)
+            print('\nFinal votes per selected feature (aggregated over multiple runs):')
+            print(votes)
+
+        if self.verbose:
+            print()
+            print('#'*61)
+            print('####### Multi-Fold feature selection process explained ######')
+            print('#'*61)
+
         if len(votes) > 10:
             # Find natural cutoff point using knee detection
             kneedle = KneeLocator(range(len(votes)), votes.values, curve='convex')
@@ -649,7 +715,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             voted_features.reverse()
 
         if self.verbose:
-            print(f'voted_features selects features from runs based on highest score: \n{voted_features}')        
+            print(f'\nVoted: {len(voted_features)} features that have more than 1 vote: \n{voted_features}')        
 
         # multirun_features is now a UNION of features from all runs
         multirun_features = set()
@@ -657,7 +723,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             multirun_features.update(feature_set)
         multirun_features = list(multirun_features)
         if self.verbose:
-            print(f'multi run selects {len(multirun_features)} features from all runs: \n{multirun_features}')        
+            print(f'Multi-run: {len(multirun_features)} features under consideration from multiple runs: \n{multirun_features}')        
 
         ### select whichever subset is smaller since it is likely to be better features!
         if len(voted_features) < len(multirun_features):
@@ -665,10 +731,9 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         else:
             initial_union = multirun_features
 
-
         ### This final next step is needed to boost selection performance!
         if self.verbose:
-            print(f' Model fit with all features adds {len(initial_features)} initial features: \n{initial_features}')        
+            print(f'Initial: {len(initial_features)} features chosen from all-features model fit: \n{initial_features}')        
 
         #### Putting voted features first works very well so I made it an OrderedDict
         final_union = list(OrderedDict.fromkeys(voted_features+initial_features).keys())
@@ -677,6 +742,46 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         #final_union = list(OrderedDict.fromkeys(initial_features+voted_features).keys())
 
         if self.verbose:
-            print(f'\nFinal list of combined features from multiple runs are:\n{final_union}')
+            print(f'\nFinal union reflects de-duplicated union of best features from multiple angles:\n{final_union}')
 
         return final_union
+#######################################################################################
+import copy
+import random
+
+def polars_train_test_split(X, y, test_size=0.20, random_state=None):
+    """
+    ##############  B E W A R E   OF  U S I N G  S K LE A R N TRAIN_TEST_SPLIT IN POLARS #######################
+    # If you perform train-test split using sklearn gives different random samples each time
+    # So this doesn't work: X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Instead you must split with Polars sample with seed parameter to get the same random samples each time
+    ##############  B E W A R E   OF  U S I N G  S K LE A R N TRAIN_TEST_SPLIT IN POLARS #######################
+    """
+    X = copy.deepcopy(X)
+    y = copy.deepcopy(y)
+    
+    if not 0 < test_size < 1:
+        raise ValueError("test_size must be between 0 and 1")
+
+    if random_state is not None:
+        random.seed(random_state)
+
+    X = X.sample(fraction=1.0, seed=random_state)  # Shuffle the DataFrame
+    y = y.sample(fraction=1.0, seed=random_state)  # Shuffle the Series
+
+    test_size_abs = int(len(X) * test_size)
+    X_test = X.tail(test_size_abs)
+    X_train = X.head(len(X) - test_size_abs)
+    y_test = y.tail(test_size_abs)
+    y_train = y.head(len(X) - test_size_abs)
+
+    if len(X_train) + len(X_test) != len(X):
+        diff = len(X) - (len(X_train) + len(X_test))
+        test_size_abs += diff
+        X_test = X.tail(test_size_abs)
+        X_train = X.head(len(X) - test_size_abs)
+        y_test = y.tail(test_size_abs)
+        y_train = y.head(len(X) - test_size_abs)
+
+    return X_train, X_test, y_train, y_test
+#################################################################################################
