@@ -120,7 +120,7 @@ I have also provided code snippets to illustrate how to load a file into `polars
     ####################################################################################################
     from featurewiz_polars import polars_train_test_split
     X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
-    
+
 </ul>
 
 ## Feature Selection with `featurewiz-polars`: Two Approaches
@@ -192,12 +192,12 @@ The `Featurewiz_MRMR_Model` class initializes the pipeline with a built-in Rando
 #### Arguments:
 
 *   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
-        You can try other estimators but currently, only XGBoost, RandomForest and LightGBM are allowed. 
-        CatBoost is available but giving an error with Polars. 
+        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
 
 *   **`model`** (estimator object, *optional*): This estimator is used in the pipeline to train a new model `after feature selection`.
         If `None`, a default estimator (Random Forest) will be trained after selection. Defaults to `None`. 
         This `model` argument can be different from the `estimator` argument above.
+        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
 
 *   **`model_type`** (str, *optional*): The type of model to be built (`'classification'` or `'regression'`). Determines the appropriate preprocessing and feature selection strategies. Defaults to `'classification'`.
 
