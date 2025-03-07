@@ -154,7 +154,6 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             discrete_mask = [False]*len(features)
 
         y = y.to_numpy()
-
         if self.model_type == 'classification':
             mis_values = mutual_info_classif(
                 X_encoded, y, 
@@ -324,10 +323,14 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             ### selecting features by knee location is a very good idea!
             importances = importances.sort_values(ascending=False)
             knee_location = KneeLocator(range(len(importances)), importances.values, curve='convex').knee
-            ### if knee location is only 1, select the single feature
-            if knee_location > 1:
-                knee_location +- 1
-            selected = importances[:knee_location].index.tolist()
+            ### if knee location is only 1, select the single feature. Sometimes it is None
+            if not knee_location is None:
+                if knee_location > 1:
+                    knee_location +- 1
+                selected = importances[:knee_location].index.tolist()
+            else:
+                ### when there is nothing to selected, it means all are worthless features
+                selected = []
 
             if self.verbose:
                 print('sorted features importances in this iteration: \n', importances)
@@ -335,8 +338,9 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
             
             # Update votes with exponential weighting (later chunks matter more)
             weight = 1 + (i/(total_features*2))  # 1x to 1.5x weight
-            for feat in selected:
-                feature_votes[feat] += weight
+            if len(selected) > 0:
+                for feat in selected:
+                    feature_votes[feat] += weight
 
             earlier_features = copy.deepcopy(chunk_features)
             iteration += 1
@@ -575,7 +579,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         if 'catboost' in str(model).lower():
             model.fit(X.to_pandas(), y.to_pandas())
         elif 'lgbm' in str(model).lower():
-            model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', feature_name='auto')
+            model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', feature_name='auto',)
         else:
             model.fit(X, y)
         return model

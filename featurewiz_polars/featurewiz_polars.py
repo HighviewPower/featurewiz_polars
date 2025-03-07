@@ -379,7 +379,8 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         if 'catboost' in str(self.model).lower():
             self.model.fit(X.to_pandas(), y.to_pandas())
         elif 'lgbm' in str(self.model).lower():
-            self.model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', feature_name='auto')
+            self.model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', 
+                    feature_name='auto')
         else:
             self.model.fit(X, y)
         return self.model
