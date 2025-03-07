@@ -106,11 +106,10 @@ I have also provided code snippets to illustrate how to load a file into `polars
     df = pl.read_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True,
         infer_schema_length=10000, ignore_errors=True)
 
-    ### Split the Polars dataframe into train and test using scikit-learn's train_test_split using:
-
+    ### Before we do feature selection we always need to make sure we split the data #######
     target = 'target'
     predictors = [x for x in df.columns if x not in [target]]
-    from sklearn.model_selection import train_test_split
+
     X = df[predictors]
     y = df[target] 
 
@@ -120,7 +119,8 @@ I have also provided code snippets to illustrate how to load a file into `polars
     # Instead you must split using polars_train_test_split with seed parameter to get same random samples 
     ####################################################################################################
     from featurewiz_polars import polars_train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
+    
 </ul>
 
 ## Feature Selection with `featurewiz-polars`: Two Approaches
