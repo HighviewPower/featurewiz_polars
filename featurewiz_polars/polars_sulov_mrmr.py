@@ -20,13 +20,22 @@ import pdb
 from polars import selectors as cs
 import pyarrow
 #################################################################################
-class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name 
+class Sulov_MRMR(BaseEstimator, TransformerMixin):
+    def __init__(self, corr_threshold=0.7, model_type='classification',
+                 estimator=None, classic=False, verbose=0):
+        """
+        Initialize SULOV-MRMR feature selector.
 
-    def __init__(self, corr_threshold: float = 0.7, ## minimum 0.7 is recommended
-                 model_type = 'classification', classic = True, estimator=None,
-                 verbose: int = 0):
+        Args:
+            corr_limit (float): Correlation threshold for feature removal
+            estimator: Model estimator for feature importance
+            classic (bool): Whether to use classic selection method
+            verbose (int): Verbosity level
+        """
         self.corr_threshold = corr_threshold
         self.model_type = model_type.lower()
+        self.estimator = estimator
+        self.classic = classic
         self.verbose = verbose
         self.selected_features = []
         self.target = None
@@ -34,8 +43,6 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin): # Class name
         self.encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
         self.fitted_ = False
         self.random_state = 12
-        self.classic = classic
-        self.estimator = estimator
         self.model_name = self._get_model_name(estimator)
 
     def fit(self, X: pl.DataFrame, y: pl.Series) -> pl.DataFrame:

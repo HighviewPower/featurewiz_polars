@@ -20,56 +20,53 @@ from .polars_sulov_mrmr import Sulov_MRMR
 import time
 import copy
 import pdb
+import warnings
 #############################################################################
-class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name 
+class FeatureWiz(BaseEstimator, TransformerMixin):
     def __init__(self, 
-            model_type='classification', encoding_type='target', 
-            imputation_strategy='mean', corr_threshold = 0.7,
-            classic = False, estimator=None,
-            verbose = 0):
+            model_type='classification', category_encoders='target', 
+            imputation_strategy='mean', corr_limit=0.7,
+            classic=False, estimator=None,
+            verbose=0):
         """
-        Initializes the Featurewiz_MRMR class for feature engineering and selection.
+        Initializes the FeatureWiz class for feature engineering and selection.
 
         Args:
-            model_type (str, optional):  The type of model to be built ('classification' or 'regression'). 
-            Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
+            model_type (str, optional): The type of model to be built ('classification' or 'regression'). 
+                Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
 
-            encoding_type (str, optional): The type of encoding to apply to categorical features ('woe', 'target', 'ordinal', 'onehot', etc.).  
-            'woe' encoding is only available for classification model types. Defaults to 'target'.
+            category_encoders (str, optional): The type of encoding to apply to categorical features ('woe', 'target', 'ordinal', 'onehot', etc.).  
+                'woe' encoding is only available for classification model types. Defaults to 'target'.
 
             imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros'). 
             Determines how missing data will be filled in before feature selection. Defaults to 'mean'.
 
-            corr_threshold (float, optional): The correlation threshold for removing highly correlated features. 
-            Features with a correlation above this threshold will be considered for removal. Defaults to 0.7.
+            corr_limit (float, optional): The correlation limit for removing highly correlated features. 
+            Features with a correlation above this limit will be considered for removal. Defaults to 0.7.
 
-            classic (bool, optional): If true, it implements the original classic featurewiz approach with recursive_xgboost implemented in Polars.
-            If False, implements the train-validation-recursive-xgboost version, which is slower and uses train_test_split schemes to stabilize features.
+            classic (bool, optional): If true, implements the original classic featurewiz approach.
+            If False, implements the train-validation-recursive approach for more stable feature selection.
 
-            estimator (estimator object, optional): If None, it implements the original XGBoost approach with recursive feature elimination.
-            Your options are: randomforest or catboost or lightgbm models for feature selection. Defaults to None.
+            estimator (estimator object, optional): Model used for feature selection.
+            Options: randomforest, catboost, or lightgbm. Defaults to None (uses XGBoost).
 
-            verbose (int, optional): Controls the verbosity of the output during feature selection.  
-            0 for minimal output, 1 for more detailed information and 2 for very detailed info. Defaults to 0.
+            verbose (int, optional): Controls the verbosity of the output. Defaults to 0.
         """
         self.model_type = model_type.lower()
-        self.encoding_type = encoding_type.lower()
-        self.imputation_strategy = imputation_strategy.lower()
-        self.corr_threshold = corr_threshold
-        self.verbose = verbose
-        self.preprocessing_pipeline = None
-        self.featurewiz_pipeline = None
-        self.feature_selection = None
-        self.selected_features = []
+        self.category_encoders = category_encoders
+        self.imputation_strategy = imputation_strategy
+        self.corr_limit = corr_limit
         self.classic = classic
         self.estimator = estimator
+        self.verbose = verbose
+        self.fitted_ = False
         # MRMR is different for regression and classification
         if self.model_type == 'regression':
             
             ### This is for Regression where no YTransformer is needed ##
             preprocessing_pipeline = Pipeline([
                     ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
+                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.category_encoders, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
                     ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
                 ])
         else:
@@ -77,13 +74,13 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
             #### You need YTransformer in the X_pipeline becasue featurewiz uses XGBoost which needs a transformed Y. Otherwise error!
             preprocessing_pipeline = Pipeline([
                     ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.encoding_type, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
+                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.category_encoders, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
                     ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
                     ('ytransformer', YTransformer()),
                 ])
 
         featurewiz_pipeline = Pipeline([
-                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_threshold, estimator=self.estimator,
+                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_limit, estimator=self.estimator,
                     model_type=self.model_type, classic=self.classic, verbose=self.verbose)),
                 ])
 
@@ -130,7 +127,7 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
 
     def fit(self, X, y):
         """
-        Fits the Featurewiz_MRMR class to the input data. This performs the core feature engineering and selection steps.
+        Fits the FeatureWiz class to the input data. This performs the core feature engineering and selection steps.
 
         Args:
             X (pd.DataFrame or pl.DataFrame): The input feature data.  Can be a Pandas or Polars DataFrame.
@@ -213,47 +210,41 @@ class Featurewiz_MRMR(BaseEstimator, TransformerMixin): # Class name
         return Xt, yt
 
 ##############################################################################
-class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name 
+class Featurewiz_MRMR(FeatureWiz):
+    """Deprecated: Use FeatureWiz instead."""
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "Featurewiz_MRMR is deprecated and will be removed in a future version. "
+            "Use FeatureWiz instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        super().__init__(*args, **kwargs)
+
+##############################################################################
+class FeatureWiz_Model(BaseEstimator, TransformerMixin):
     """
-    Initializes the Featurewiz_MRMR_Model class for feature engineering, selection, and model training.
+    Initializes the FeatureWiz_Model class for feature engineering, selection, and model training.
 
     Args:
-    *   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
-        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
-
-    *   **`model`** (estimator object, *optional*): This estimator is used in the pipeline to train a new model `after feature selection`.
-        If `None`, a default estimator (Random Forest) will be trained after selection. Defaults to `None`. 
-        This `model` argument can be different from the `estimator` argument above.
-        Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
-
-        model_type (str, optional): The type of model to be built ('classification' or 'regression').
-        Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
-
-        encoding_type (str, optional): The type of encoding to apply to categorical features ('target', 'onehot', etc.).
-        'woe' encoding is only available for classification model_types. Defaults to 'target'.
-
-        imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros').
-        Determines how missing data will be filled in before feature selection. Defaults to 'mean'.
-
-        corr_threshold (float, optional): The correlation threshold for removing highly correlated features.
-        Features with a correlation above this threshold will be targeted for removal. Defaults to 0.7.
-
-        classic (bool, optional): If true, it implements the original classic featurewiz library using Polars. 
-        If False, implements train-validation-split-recursive-xgboost version, which is slower and uses train_test_splits to stabilize features.
-
-        verbose (int, optional): Controls the verbosity of the output during feature selection. 
-        0 for minimal output, higher values for more detailed information. Defaults to 0.
-    """    
-    def __init__(self, model=None, 
-        model_type='classification', encoding_type='target', 
-        imputation_strategy='mean', corr_threshold = 0.7,
-        classic=False, estimator=None,
-        verbose = 0):
+        model_type (str, optional): The type of model ('classification' or 'regression').
+        model (estimator object, optional): The model to train after feature selection.
+        category_encoders (str, optional): The type of encoding for categorical features.
+        imputation_strategy (str, optional): Strategy for handling missing values.
+        corr_limit (float, optional): Correlation limit for feature removal.
+        classic (bool, optional): Whether to use classic or split-driven approach.
+        estimator (estimator object, optional): Model for feature selection.
+        verbose (int, optional): Verbosity level.
+    """
+    def __init__(self, model_type='classification', model=None,
+                 category_encoders='target', imputation_strategy='mean',
+                 corr_limit=0.7, classic=False, estimator=None,
+                 verbose=0):
         self.model = model
         self.model_type = model_type.lower()
-        self.encoding_type = encoding_type.lower()
-        self.imputation_strategy = imputation_strategy.lower()
-        self.corr_threshold = corr_threshold
+        self.category_encoders = category_encoders
+        self.imputation_strategy = imputation_strategy
+        self.corr_limit = corr_limit
         self.verbose = verbose
         self.preprocessing_pipeline = None
         self.featurewiz_pipeline = None
@@ -263,10 +254,10 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
         self.classic = classic
         self.estimator = estimator
         # MRMR is same for regression and classification
-        feature_selection = Featurewiz_MRMR(model_type=self.model_type, 
-            encoding_type=self.encoding_type, 
+        feature_selection = FeatureWiz(model_type=self.model_type,  # Changed from Featurewiz_MRMR
+            category_encoders=self.category_encoders, 
             imputation_strategy=self.imputation_strategy, 
-            corr_threshold =self.corr_threshold,
+            corr_limit=self.corr_limit,
             classic=self.classic, estimator=self.estimator,
             verbose=self.verbose)
 
@@ -536,4 +527,15 @@ class Featurewiz_MRMR_Model(BaseEstimator, TransformerMixin): # Class name
                 return self.model.predict_proba(Xt[self.selected_features].to_pandas())
             else:
                 return self.model.predict_proba(Xt[self.selected_features])
+##############################################################################
+class Featurewiz_MRMR_Model(FeatureWiz_Model):
+    """Deprecated: Use FeatureWiz_Model instead."""
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "Featurewiz_MRMR_Model is deprecated and will be removed in a future version. "
+            "Use FeatureWiz_Model instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        super().__init__(*args, **kwargs)
 ##############################################################################

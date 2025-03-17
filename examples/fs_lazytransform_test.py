@@ -2,10 +2,10 @@ import polars as pl
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
+from featurewiz_polars import polars_train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from featurewiz_polars import print_classification_metrics, print_regression_metrics
-from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
+from featurewiz_polars import FeatureWiz, FeatureWiz_Model
 from featurewiz_polars import Sulov_MRMR
 import time
 import pdb
@@ -15,11 +15,15 @@ n_informative = 10
 #X, y = make_classification(n_samples = 5000, n_features = n_features, 
 #                n_informative = n_informative, n_redundant=4, random_state=42)
 datapath = "../data/"
-filename = "house_price_regression.csv"
+filename = "baby_weight.csv"
 fl = pl.scan_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True, infer_schema_length=10000, ignore_errors=True)
 df = fl.collect()#.sample(5000)
+print('If there are some outliers which are distorting the results, we will remove them!')
+print(df.shape)
+#df = df.filter(pl.col("price") < 10000000) 
+print(df.shape)
 print('Loaded data...', df.shape)
-target = 'price' # Replace with your target column name
+target = 'bwt' # Replace with your target column name
 model_type = 'Regression'
 if target not in df.columns:
     print(f"Error: Target column '{target}' not found in the CSV file.")
@@ -28,7 +32,7 @@ predictors = [x for x in df.columns if x!=target]
 X = df[predictors]
 y = df[target]
 print('Data dimensions (rows x cols) = %d dims' %(int(X.shape[0]*X.shape[1])))
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
 # select top 10 features using mRMR
 if __name__ == '__main__':
     from featurewiz import LazyTransformer, FeatureWiz
@@ -54,8 +58,8 @@ if __name__ == '__main__':
         time.time()-start_time))
     ##################################################################################
     start_time = time.time()
-    mrmr = Featurewiz_MRMR_Model(model_type=model_type, 
-            corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
+    mrmr = FeatureWiz_Model(model_type=model_type, 
+            corr_limit=0.7, category_encoders='onehot', classic=True, verbose=0)
     #mrmr = Sulov_MRMR(corr_threshold=0.7, verbose=1, n_recursions=5)
     mrmr.fit_predict(X_train, y_train)
     pols_feats = mrmr.selected_features

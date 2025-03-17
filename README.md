@@ -125,69 +125,55 @@ I have also provided code snippets to illustrate how to load a file into `polars
 
 ## Feature Selection with `featurewiz-polars`: Two Approaches
 
-This section demonstrates two distinct ways to use the `featurewiz-polars` library: `feature selection only`, and `feature selection combined with model training`.
+### 1. Feature Selection Only with `FeatureWiz`
 
-### 1. Feature Selection Only with `Featurewiz_MRMR`
-
-This approach is useful when you want to pre-process your data and select the most relevant features *before* feeding them into a separate model training pipeline. It's particularly helpful if you want to experiment with different models using the same selected features.
-
-Here's how to use `Featurewiz_MRMR` for feature selection in a classification scenario, where the categorical target variable "y" needs to be transformed into a numerical representation:
+This approach is useful when you want to pre-process your data and select the most relevant features *before* feeding them into a separate model training pipeline.
 
 ```python
-from featurewiz_polars import Featurewiz_MRMR
+from featurewiz_polars import FeatureWiz
 
-# Initialize Featurewiz_MRMR for classification with XGBoost doing feature selection (estimator=None)
-mrmr = Featurewiz_MRMR(model_type="Classification", estimator=None,
-            corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
+# Initialize FeatureWiz for classification
+wiz = FeatureWiz(model_type="Classification", estimator=None,
+        corr_limit=0.7, category_encoders='onehot', classic=True, verbose=0)
 
-# Fit and transform the training data (X_train, y_train)
-X_transformed, y_transformed = mrmr.fit_transform(X_train, y_train)
+# Fit and transform the training data
+X_transformed, y_transformed = wiz.fit_transform(X_train, y_train)
 
-# Transform the test data (X_test)
-X_test_transformed = mrmr.transform(X_test)
+# Transform the test data
+X_test_transformed = wiz.transform(X_test)
 
-# Transform the test target variable (y_test)
-y_test_transformed = mrmr.y_encoder.transform(y_test)
+# Transform the test target variable
+y_test_transformed = wiz.y_encoder.transform(y_test)
 ```
 
-**Key Points:**
+### 2. Feature Selection and Model Training with `FeatureWiz_Model`
 
-*   We use the `Featurewiz_MRMR` class for feature selection.
-*   The `estimator` argument is used to select the model doing the feature selection. You can try other estimators. Currently, only XGBoost, RandomForest and LightGBM are allowed. CatBoost is available but giving an error with Polars. 
-*   The `fit_transform` method is used to fit the feature selection process on the training data and simultaneously transform it.
-*   We use the `transform` method separately to transform the test data, applying the same feature selection learned from the training data.
-*   The `y_encoder` is used to transform the target variable if it's categorical.
-
-### 2. Feature Selection and Model Training with `Featurewiz_MRMR_Model`
-
-This approach combines feature selection and model training into a single pipeline. It's useful when you want to streamline the entire process and train a model directly on the selected features.
-
-Here's how to use `Featurewiz_MRMR_Model` for both feature selection and model training in a regression scenario. It assumes that the target variable "y" is already numerical.
+This approach combines feature selection and model training into a single pipeline.
 
 ```python
-from featurewiz_polars import Featurewiz_MRMR_Model
+from featurewiz_polars import FeatureWiz_Model
 from xgboost import XGBRegressor
 
-# Initialize Featurewiz_MRMR_Model for regression with an XGBoost Regressor
-mrmr_model = Featurewiz_MRMR_Model(model_type="Regression", model=XGBRegressor(),
-            corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
+# Initialize FeatureWiz_Model for regression with an XGBoost Regressor
+wiz_model = FeatureWiz_Model(model_type="Regression", model=XGBRegressor(),
+            corr_limit=0.7, category_encoders='onehot', classic=True, verbose=0)
 
-# Fit and transform the training data (X_train, y_train)
-X_transformed, y_transformed = mrmr_model.fit_transform(X_train, y_train)
+# Fit and transform the training data
+X_transformed, y_transformed = wiz_model.fit_transform(X_train, y_train)
 
-# Make predictions on the test data (X_test) - handles both transform and predict simultaneously
-y_pred = mrmr_model.predict(X_test)
+# Make predictions on test data
+y_pred = wiz_model.predict(X_test)
 ```
 
 **Key Points:**
 
-*   We use the `Featurewiz_MRMR_Model` class to combine feature selection and model training.
+*   We use the `FeatureWiz_Model` class to combine feature selection and model training.
 *   The `fit_transform` method is used to fit the feature selection process *and* train the specified model on the training data.
 *   The `predict` method handles both transforming the test data using the learned feature selection and making predictions with the trained model, streamlining the entire process.
 
 <h3>Arguments for featurewiz_polars Pipeline</h3>
 
-The `Featurewiz_MRMR_Model` class initializes the pipeline with a built-in Random Forest estimator (which you can change - see below) for building data pipelines that use the feature engineering, selection, and model training capabilities of Polars. You need to upload your data into Polars DataFrames and then start calling these pipelines.
+The `FeatureWiz_Model` class initializes the pipeline with a built-in Random Forest estimator (which you can change - see below) for building data pipelines that use the feature engineering, selection, and model training capabilities of Polars. You need to upload your data into Polars DataFrames and then start calling these pipelines.
 
 #### Arguments:
 
@@ -201,11 +187,11 @@ The `Featurewiz_MRMR_Model` class initializes the pipeline with a built-in Rando
 
 *   **`model_type`** (str, *optional*): The type of model to be built (`'classification'` or `'regression'`). Determines the appropriate preprocessing and feature selection strategies. Defaults to `'classification'`.
 
-*   **`encoding_type`** (str, *optional*): The type of encoding to apply to categorical features (`'target'`, `'onehot'`, etc.).  `'woe'` encoding is only available for classification model types. Defaults to `'target'`.
+*   **`category_encoders`** (str, *optional*): The type of encoding to apply to categorical features (`'target'`, `'onehot'`, etc.).  `'woe'` encoding is only available for classification model types. Defaults to `'target'`.
 
 *   **`imputation_strategy`** (str, *optional*): The strategy for handling missing values (`'mean'`, `'median'`, `'zeros'`). Determines how missing data will be filled in before feature selection. Defaults to `'mean'`.
 
-*   **`corr_threshold`** (float, *optional*): The correlation threshold for removing highly correlated features. Features with a correlation above this threshold will be targeted for removal. Defaults to `0.7`.
+*   **`corr_limit`** (float, *optional*): The correlation threshold for removing highly correlated features. Features with a correlation above this threshold will be targeted for removal. Defaults to `0.7`.
 
 *   **`classic`** (bool, *optional*): If `True`, it implements the original classic `featurewiz` library using Polars. If `False`, implements the train-validation-split-recursive-xgboost version, which is faster and uses train/validation splits to stabilize features. Defaults to `False`.
 

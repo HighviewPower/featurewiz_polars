@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from featurewiz_polars import print_classification_metrics, print_regression_metrics
-from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
+from featurewiz_polars import FeatureWiz, FeatureWiz_Model
 from featurewiz_polars import Sulov_MRMR
 import time
 import pdb
@@ -33,9 +33,8 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 if __name__ == '__main__':
     ##################################################################################
     start_time = time.time()
-    mrmr = Featurewiz_MRMR_Model(model_type=model_type, 
+    mrmr = FeatureWiz_Model(model_type=model_type, 
             corr_threshold=0.7, encoding_type='onehot', classic=True, verbose=0)
-    #mrmr = Sulov_MRMR(corr_threshold=0.7, verbose=1, n_recursions=5)
     mrmr.fit_predict(X_train, y_train)
     pols_feats = mrmr.selected_features
     print(f'{len(pols_feats)} features selected by featurewiz-polars: {pols_feats}')

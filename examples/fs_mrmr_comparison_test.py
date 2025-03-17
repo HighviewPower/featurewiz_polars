@@ -6,7 +6,7 @@ from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from featurewiz_polars import print_classification_metrics, print_regression_metrics
-from featurewiz_polars import Featurewiz_MRMR, Featurewiz_MRMR_Model
+from featurewiz_polars import FeatureWiz, FeatureWiz_Model
 from featurewiz_polars import Sulov_MRMR
 import time
 import pdb
@@ -52,9 +52,9 @@ if __name__ == '__main__':
         time.time()-start_time))
     ##################################################################################
     start_time = time.time()
-    eng = LGBMClassifier(n_estimators=100, random_state=42)
-    mrmr = Featurewiz_MRMR_Model(model=eng, estimator=eng, model_type=model_type, 
-            corr_threshold=0.7, encoding_type='woe', classic=True, verbose=0)
+    eng = LGBMClassifier(n_estimators=100, random_state=42, num_leaves=8, verbose=-1)
+    mrmr = FeatureWiz_Model(model=eng, estimator=eng, model_type=model_type, 
+            corr_limit=0.7, category_encoders='woe', classic=True, verbose=0)
     #mrmr = Sulov_MRMR(corr_threshold=0.7, verbose=1, n_recursions=5)
     mrmr.fit_predict(X_train, y_train)
     pols_feats = mrmr.selected_features
