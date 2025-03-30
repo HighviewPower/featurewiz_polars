@@ -101,13 +101,33 @@ I have provided code snippet below to illustrate how to load a file into `polars
 
 </ul>
 
-To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_lazytransform_test.py` script allows you to compare the performance of `featurewiz-polars` against the `lazytransform` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. 
+<h3>Tests</h3>
+
+Unlike a new library, the `featurewiz-polars` library is well-tested. To help you get started, I've provided example scripts like `fs_test.py`. This script demonstrates how to unit-test the library using two existing datasets in ./data sub folder in a concise manner. 
+
+To run the unit tests, simply run the following command in your terminal:
+```
+cd tests
+python fs_test.py
+```
+
+Additionally, I have provided two additional scripts for benchmarking. The `fs_lazytransform_test.py` script allows you to compare the performance of `featurewiz-polars` after feature engineering with the `lazytransform` library. This is a great boon for users who want to effortlessly create hundreds of features using the lazytransform library and then use featurew-polars for feature selection. 
+```
+cd tests
+python fs_lazytransform_test.py
+```
+
+For a more in-depth benchmarking comparison between this library and another popular MRMR library, use `fs_mr_comparison_test.py` script. This script compares the performance of `featurewiz-polars` with another MRMR library.
+```
+cd tests
+python fs_lazytransform_test.py
+```
 
 If you prefer working in a Jupyter Notebook or Colab, here are direct links to work in Colab with featurewiz-polars:
 
-## Open In Colab Notebooks
+<h3>Examples</h3>
 
-Anybody can open a copy of my Github-hosted notebooks within Colab. To make it easier I have created `Open-in-Colab` links to those GitHub-hosted notebooks below:
+I have provided additional examples in ./examples sub folder. Anybody can open a copy of my Github-hosted notebooks within Colab. To make it easier I have created `Open-in-Colab` links to those GitHub-hosted notebooks below:
 
 <h4>Featurewiz-Polars Test Notebook</h4>
 
@@ -118,9 +138,11 @@ Anybody can open a copy of my Github-hosted notebooks within Colab. To make it e
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AutoViML/featurewiz_polars/blob/main/examples/fw_polars_vs_featurewiz_test.ipynb)
 
 
-## Feature Selection with `featurewiz-polars`: Two Approaches
+## Feature Selection with `featurewiz-polars`
 
-### 1. Feature Selection Only with `FeatureWiz`
+### Two Approaches
+
+### 1. Feature Selection Only with `FeatureWiz` transformer
 
 This approach is useful when you want to pre-process your data and select the most relevant features *before* feeding them into a separate model training pipeline.
 
@@ -139,11 +161,14 @@ X_test_transformed = wiz.transform(X_test)
 
 # Transform the test target variable
 y_test_transformed = wiz.y_encoder.transform(y_test)
+
+# View results
+print(wiz.selected_features)
 ```
 
-### 2. Feature Selection and Model Training with `FeatureWiz_Model`
+### 2. Feature Selection and Model Training with `FeatureWiz_Model` pipeline
 
-This approach combines feature selection and model training into a single pipeline.
+This approach combines both feature selection and model training into a single scikit-learn pipeline.
 
 ```python
 from featurewiz_polars import FeatureWiz_Model
@@ -158,6 +183,9 @@ X_transformed, y_transformed = wiz_model.fit_transform(X_train, y_train)
 
 # Make predictions on test data
 y_pred = wiz_model.predict(X_test)
+
+# View results
+print(wiz_model.selected_features)
 ```
 
 **Key Points:**
@@ -168,9 +196,9 @@ y_pred = wiz_model.predict(X_test)
 
 <h3>Arguments for featurewiz_polars Pipeline</h3>
 
-The `FeatureWiz_Model` class initializes the pipeline with a built-in Random Forest estimator (which you can change - see below) for building data pipelines that use the feature engineering, selection, and model training capabilities of Polars. You need to upload your data into Polars DataFrames and then start calling these pipelines.
+The `FeatureWiz` class and `FeatureWiz_Model` class are designed for building data pipelines that use the feature engineering, selection, and model training capabilities of Polars. All you need to do is to upload your data into Polars DataFrames and then start calling these pipelines.
 
-#### Arguments:
+#### Arguments for pipelines
 
 *   **`estimator`**  (estimator object, *optional*): This argument is used to by featurewiz to do the feature selection. 
         Only the following model estimators are supported: XGBoost, CatBoost, RandomForest and LightGBM 
