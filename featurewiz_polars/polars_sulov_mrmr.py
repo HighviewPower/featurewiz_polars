@@ -103,7 +103,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin):
             print("="*40)
 
         # Separate numeric and categorical features
-        numeric_cols = X.select(pl.col(pl.NUMERIC_DTYPES)).columns
+        numeric_cols = X.select(cs.numeric()).columns
         cat_cols = X.select(pl.col(pl.String, pl.Categorical)).columns
         features = sorted(numeric_cols + cat_cols)
         
@@ -187,8 +187,8 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin):
         return (
             corr_matrix
             .with_columns(feature_a=pl.Series(numeric_df.columns))
-            .melt(
-                id_vars="feature_a",
+            .unpivot(
+                index="feature_a",
                 variable_name="feature_b",
                 value_name="correlation"
             )

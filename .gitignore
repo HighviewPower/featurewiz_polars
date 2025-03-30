@@ -1,0 +1,59 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+*.egg
+
+# Installation directories
+downloads/
+parts/
+sdist/
+var/
+*.tar.gz
+*.zip
+
+# Pytest cache and coverage reports
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+
+# Virtual environment folders (common names)
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
+
+# Log files
+*.log
+
+# Editor directories and files (optional, but common)
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
+
+# OS generated files (optional, but common)
+.DS_Store
+Thumbs.db
+
+# Secrets (IMPORTANT - add any local secret files if you have them)
+*.env
+secrets.yaml
