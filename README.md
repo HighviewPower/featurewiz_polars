@@ -48,7 +48,7 @@ In short, using Polars with our train-validation-split `recursive_xgboost` metho
 
 <h3> Install</h3>
 
-The `featurewiz-polars` library is not available on pypi yet (I am still refining it). There are 3 ways to download and install this library to your machine.
+The `featurewiz-polars` library is available on pypi. There are 3 ways to download and install this library to your machine.
 
 1. You can git clone this library from source and run it from the terminal command as follows:
 
@@ -66,11 +66,40 @@ or<br>
 
 ```
 pip install git+https://github.com/AutoViML/featurewiz_polars.git
-or
+
 pip install featurewiz-polars
 ```
 
 <h3>Feeding data into featurewiz-polars</h3>
+
+I have provided code snippet below to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`. Use this code snippet exclusively for `featurewiz-polars` and not for `featurewiz` library.
+
+<ul>   
+
+    ### Load data into Polars DataFrames using:
+
+    import polars as pl
+    df = pl.read_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True,
+        infer_schema_length=10000, ignore_errors=True)
+
+    ### Before we do feature selection we always need to make sure we split the data #######
+    target = 'target'
+    predictors = [x for x in df.columns if x not in [target]]
+
+    X = df[predictors]
+    y = df[target] 
+
+    # BEWARE WHEN USING SCIKIT-LEARN `train_test_split` WITH POLARS DATA FRAMES!
+    # If you perform train-test split using sklearn it will give different train test rows each time
+    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Instead you must split using polars_train_test_split with seed parameter 
+    # This will ensure your train-test splits are same each time to get same rows of data
+    
+    from featurewiz_polars import polars_train_test_split
+    X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
+
+</ul>
 
 To help you quickly get started with the `featurewiz-polars` library, I've provided example scripts like `fs_test.py`. These scripts demonstrate how to use the library in a concise manner. Additionally, the `fs_lazytransform_test.py` script allows you to compare the performance of `featurewiz-polars` against the `lazytransform` library. For a more in-depth comparison, use `fs_mr_comparison_test.py` to benchmark `featurewiz-polars` against other competitive mRMR feature selection libraries. 
 
@@ -88,32 +117,6 @@ Anybody can open a copy of my Github-hosted notebooks within Colab. To make it e
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AutoViML/featurewiz_polars/blob/main/examples/fw_polars_vs_featurewiz_test.ipynb)
 
-I have also provided code snippets to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`.
-
-<ul>   
-
-    ### Load data into Polars DataFrames using:
-
-    import polars as pl
-    df = pl.read_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True,
-        infer_schema_length=10000, ignore_errors=True)
-
-    ### Before we do feature selection we always need to make sure we split the data #######
-    target = 'target'
-    predictors = [x for x in df.columns if x not in [target]]
-
-    X = df[predictors]
-    y = df[target] 
-
-    ##############  BEWARE WHEN USING SKLEARN TRAIN_TEST_SPLIT WITH POLARS DATA #######################
-    # If you perform train-test split using sklearn gives different random samples each time
-    # So this doesn't work: X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    # Instead you must split using polars_train_test_split with seed parameter to get same random samples 
-    ####################################################################################################
-    from featurewiz_polars import polars_train_test_split
-    X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
-
-</ul>
 
 ## Feature Selection with `featurewiz-polars`: Two Approaches
 
