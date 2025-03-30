@@ -1,105 +1,125 @@
-<h1>featurewiz-polars</h1><h2>Blazing fast feature engineering and selection using mRMR and Polars</h2>
-
 ![featurewiz_polars_logo](./images/featurewiz_polars_taking_off.jpg)
+# Featurewiz-Polars 🚀
 
-<h3>Project Description</h3>
+[![PyPI version](https://img.shields.io/pypi/v/featurewiz_polars.svg)](https://pypi.org/project/featurewiz_polars/)
+[![License: Apache2.0](https://img.shields.io/badge/License-Apache2.0-blue.svg)](https://opensource.org/licenses/Apache2.0)
 
-Supercharge your AI engineering pipelines with `featurewiz-polars`, a new library built on the classic `featurewiz` library, enhanced for high-performance feature engineering and selection using <b>Polars DataFrames</b>. 
+**Fast, Automated Feature Engineering and Selection using Polars!**
 
-<h3>Breaking News! featurewiz-polars is now available on pypi!</h3>
+`featurewiz_polars` is a high-performance Python library designed to accelerate your machine learning workflows by automatically creating and selecting the best features from your dataset. It leverages the speed and memory efficiency of the [Polars](https://www.pola.rs/) DataFrame library.
 
-we are excited to announce that after extensive testing, featurewiz-polars is now available on pypi! You can now install it using pip:
+## ✨ Quick Start
+
+Get started in minutes! Here's a minimal example to create some mock data:
+
+```python
+import polars as pl
+
+# Create a sample Polars DataFrame
+data = {
+    'col1': [1, 2, 1, 3, 4, 5, 1, 6],
+    'col2': [10.0, 11.5, 10.0, 12.5, 13.0, 14.5, 10.0, 15.0],
+    'category': ['A', 'B', 'A', 'B', 'C', 'A', 'A', 'C'],
+    'target': [0, 1, 0, 1, 1, 0, 0, 1]
+}
+df = pl.DataFrame(data)
+```
+
+Or you can load a CSV file into `polars` library's dataframes for use with `featurewiz-polars`. Use this code snippet exclusively for `featurewiz-polars` pipelines.
+
+```python
+# Load a CSV file into Polars DataFrames using:
+
+import polars as pl
+df = pl.read_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True,
+    infer_schema_length=10000, ignore_errors=True)
+
+# Before we do feature selection we always need to make sure we split the data #######
+target = 'target'
+predictors = [x for x in df.columns if x not in [target]]
+
+X = df[predictors]
+y = df[target] 
+
+# BEWARE WHEN USING SCIKIT-LEARN `train_test_split` WITH POLARS DATA FRAMES!
+# If you perform train-test split using sklearn it will give different train test rows each time
+# X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Instead you must split using polars_train_test_split with seed parameter 
+# This will ensure your train-test splits are same each time to get same rows of data
+
+from featurewiz_polars import polars_train_test_split
+X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
+```
+
+Once you have performed train_test_split on your Polars dataframe, you can initialize featurewiz_polars and perform feature engineering and selection:
+
+```python
+from featurewiz_polars import FeatureWiz
+
+# Initialize FeatureWiz for classification
+wiz = FeatureWiz(model_type="Classification", estimator=None,
+        corr_limit=0.7, category_encoders='onehot', classic=True, verbose=0)
+
+# Fit and transform the training data
+X_transformed, y_transformed = wiz.fit_transform(X_train, y_train)
+
+# Transform the test data
+X_test_transformed = wiz.transform(X_test)
+
+# Transform the test target variable
+y_test_transformed = wiz.y_encoder.transform(y_test)
+```
+
+Now you can display the selected features and use them further in your model training pipelines:
+```python
+# View results
+print("Selected Features:")
+print(wiz.selected_features)
+# Example Output: ['col1', 'col2', 'category_A', 'category_B']
+
+print("\nTransformed DataFrame head:")
+print(X_transformed.head())
+# Example Output: Polars DataFrame with only the selected features
+```
+
+## 🤔 Why Use featurewiz_polars?
+While there are many tools for feature manipulation, featurewiz_polars offers a unique combination of speed, automation, and specific algorithms:
+
+**Vs. Original featurewiz (Pandas):**
+
+**Speed & Memory:** Built entirely on Polars, `featurewiz_polars` offers exceptional speed and memory efficiency. It is particularly well-suited for handling datasets that exceed the limits of Pandas, leveraging Polars' multi-threaded processing and highly optimized Rust-based backend for superior performance.
+
+### 🚀 Why Choose featurewiz_polars?
+
+**Modern Backend:** Harnesses the power of the cutting-edge Polars ecosystem for unparalleled speed and efficiency.
+
+**Vs. scikit-learn Preprocessing/Selection:**
+
+- **Seamless Automation:** Combines feature engineering (e.g., interactions, group-by features) and feature selection into a single, streamlined pipeline. Unlike scikit-learn, which often requires manual configuration of multiple transformers, `featurewiz_polars` simplifies the process.
+- **SULOV Algorithm:** Features the "Searching for Uncorrelated List of Variables" (SULOV) method—a fast, effective approach to identifying a diverse set of predictive features. This often results in simpler, more robust models. While scikit-learn offers methods like RFE, SelectKBest, and L1-based selection, SULOV is a unique advantage.
+- **Integrated Workflow:** Transforms raw data into a model-ready feature set with minimal effort, making it ideal for end-to-end machine learning pipelines.
+
+**When to Use featurewiz_polars:**
+
+- **Handle Large Datasets:** Designed for maximum performance on datasets that push the limits of traditional tools.
+- **Automate Feature Engineering:** Save time with automated creation and selection of impactful features.
+- **Leverage Advanced Techniques:** Unlock the power of SULOV and other specialized algorithms for superior feature selection.
+
+With `featurewiz_polars`, you get speed, simplicity, and cutting-edge techniques—all in one package.
+
+## 💾 Installation: How to Install featurewiz_polars?
+Install featurewiz_polars directly from PyPI:
 
 ```
-pip install featurewiz-polars
+pip install featurewiz_polars
 ```
 
-This means that you can now easily install and use `featurewiz-polars` in your Python projects. We hope you find it useful and we welcome any feedback or contributions you may have.
-
-<h3>Motivation: Addressing Bottlenecks</h3>
-
-<p>This library was born out of the need for <b>efficient feature engineering</b> when working with <b>large datasets</b> and the <b>Polars DataFrame library</b>. Traditional feature selection and categorical encoding methods often become computationally expensive and memory-intensive as datasets grow in size and dimensionality.</p>
-
-<p>Specifically, the motivation stemmed from the following challenges:</p>
-
-<ol>
-    <li><b>Performance limitations with large datasets:</b> Existing feature selection and encoding implementations (often in scikit-learn or Pandas-based libraries) can be slow and inefficient when applied to datasets with millions of rows and hundreds of columns.</li>          
-    <li><b>Lack of Polars integration:</b> Many feature engineering tools are designed for Pandas DataFrames, requiring conversions to and from Polars, which introduces overhead and negates the performance benefits of Polars.</li>
-    <li><b>Need for efficient MRMR feature selection:</b> Max-Relevance and Min-Redundancy (MRMR) is a powerful feature selection technique, but efficient implementations optimized for large datasets were needed, especially within the Polars ecosystem.</li>
-    <li><b>Overfitting concerns:</b> Classic feature selection methods can lead to overfitting, especially when dealing with high-dimensional data. There was a need for a method that could provide more stable and reliable feature selection.</li>
-    <li><b>Availability of scikit-learn Pipelines & Testing:</b> Most specialized libraries did not make their feature selection available as sckit-learn compatible transformers. That's why I created Pipeline examples (e.g., <code>fs_test.py</code> and <code>featurewiz_polars_test1.ipynb</code>) to  test the integration of our feature selector within scikit-learn pipelines to test the functionality and performance of the library.</li>
-    <li><b>Addressing Date-Time Variables:</b> Most feature selection libraries did not handle date-time variables. Hence they were useless in time series problems. Recognizing this gap, the library's scope was expanded to include date-time variables (to help in time series tasks) and also the filling of NaN's and Nulls which commonly occurs in in Polars data frames. Thus a <code>Polars_MissingTransformer</code> was  added to handle Nulls and NaNs efficiently within Polars.</li>
-    <li><b>Testing and Refinement:</b> Throughout the development, I put in an intense focus on verifying the correctness of the new algorithms and code, making sure that the new algorithm outpeformed my existing classic featurewiz library, particularly in the <code>recursive_xgboost</code> method which I modified.</li>
-</ol>
-
-<h3>Key Differentiators</h3>
-
-The new `featurewiz-polars` leverages Polars library to deliver following **advantages over the current classic `featurewiz` library:**
-
-1.  **Conquer Overfitting:** *`featurewiz-polars` validates features on a train-validation split, crushing overfitting and boosting generalization power.* 
-
-2.  **Rock-Solid Stability:** *Multiple runs with different splits mean more stable feature selection. Thanks to Polars, stabilization is now lightning fast!* 
-
-3.  **Big Data? No Sweat!** *Polars' raw speed and efficiency tame even the largest datasets, making feature selection a breeze.* 
-
-4.  **XGBoost / Polars native integration:** *`featurewiz-polars` integrates natively and seamlessly with XGBoost, streamlining your entire ML pipeline from start to finish with Polars.*
-
-In short, using Polars with our train-validation-split `recursive_xgboost` method offers a powerful combination: the robust feature selection of classic `featurewiz` with the new stabilization tailwind to give you more choices for reliable and fast feature selection, particularly for large datasets.
-
-<h3> Install</h3>
-
-The `featurewiz-polars` library is available on pypi. There are 3 ways to download and install this library to your machine.
-
-1. You can git clone this library from source and run it from the terminal command as follows:
-
-```
-git clone https://github.com/AutoViML/featurewiz_polars.git
-cd featurewiz_polars
-pip install -r requirements.txt
-cd examples
-python fs_test.py
-```
-or<br>
-2. You can download and unzip https://github.com/AutoViML/featurewiz_polars/archive/master.zip and follow the instructions from pip install above. But you start from the terminal in the directory where you downloaded the zip file.<br>
-or<br>
-3. You can install either from source or from pypi as follows on the terminal command:
+Or, install the latest development version directly from GitHub:
 
 ```
 pip install git+https://github.com/AutoViML/featurewiz_polars.git
-
-pip install featurewiz-polars
 ```
-
-<h3>Feeding data into featurewiz-polars</h3>
-
-I have provided code snippet below to illustrate how to load a file into `polars` library's dataframes for use with `featurewiz-polars`. Use this code snippet exclusively for `featurewiz-polars` and not for `featurewiz` library.
-
-<ul>   
-
-    ### Load data into Polars DataFrames using:
-
-    import polars as pl
-    df = pl.read_csv(datapath+filename, null_values=['NULL','NA'], try_parse_dates=True,
-        infer_schema_length=10000, ignore_errors=True)
-
-    ### Before we do feature selection we always need to make sure we split the data #######
-    target = 'target'
-    predictors = [x for x in df.columns if x not in [target]]
-
-    X = df[predictors]
-    y = df[target] 
-
-    # BEWARE WHEN USING SCIKIT-LEARN `train_test_split` WITH POLARS DATA FRAMES!
-    # If you perform train-test split using sklearn it will give different train test rows each time
-    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # Instead you must split using polars_train_test_split with seed parameter 
-    # This will ensure your train-test splits are same each time to get same rows of data
-    
-    from featurewiz_polars import polars_train_test_split
-    X_train, X_test, y_train, y_test = polars_train_test_split(X, y, test_size=0.2, random_state=42)
-
-</ul>
 
 <h3>Tests</h3>
 
@@ -144,27 +164,7 @@ I have provided additional examples in ./examples sub folder. Anybody can open a
 
 ### 1. Feature Selection Only with `FeatureWiz` transformer
 
-This approach is useful when you want to pre-process your data and select the most relevant features *before* feeding them into a separate model training pipeline.
-
-```python
-from featurewiz_polars import FeatureWiz
-
-# Initialize FeatureWiz for classification
-wiz = FeatureWiz(model_type="Classification", estimator=None,
-        corr_limit=0.7, category_encoders='onehot', classic=True, verbose=0)
-
-# Fit and transform the training data
-X_transformed, y_transformed = wiz.fit_transform(X_train, y_train)
-
-# Transform the test data
-X_test_transformed = wiz.transform(X_test)
-
-# Transform the test target variable
-y_test_transformed = wiz.y_encoder.transform(y_test)
-
-# View results
-print(wiz.selected_features)
-```
+You have already seen this in the Quick Start section.
 
 ### 2. Feature Selection and Model Training with `FeatureWiz_Model` pipeline
 
@@ -245,5 +245,7 @@ The new `featurewiz-polars` library uses an improved method for `recursive_xgboo
 
 If you are working on processing massive datasets with Polars' speed and efficiency, while leveraging the power of `featurewiz_polars` for building high quality MLOps workflows, I welcome your feedback and comments to me at rsesha2001 at yahoo dot com for making it more useful to you in the months to come. Please `star` this repo or open a pull request or report an issue. Every which way, you make this repo more useful and better for everyone!
 
+## License
+Apache License 2.0
 
-Copyright 2025 Ram Seshadri
+Copyright & All Rights Reserved 2025 Ram Seshadri
