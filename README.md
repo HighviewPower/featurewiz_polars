@@ -6,19 +6,31 @@
 
 Supercharge your AI engineering pipelines with `featurewiz-polars`, a new library built on the classic `featurewiz` library, enhanced for high-performance feature engineering and selection using <b>Polars DataFrames</b>. 
 
+<h3>Breaking News! featurewiz-polars is now available on pypi!</h3>
+
+we are excited to announce that after extensive testing, featurewiz-polars is now available on pypi! You can now install it using pip:
+
+```
+pip install featurewiz-polars
+```
+
+This means that you can now easily install and use `featurewiz-polars` in your Python projects. We hope you find it useful and we welcome any feedback or contributions you may have.
+
 <h3>Motivation: Addressing Bottlenecks</h3>
 
 <p>This library was born out of the need for <b>efficient feature engineering</b> when working with <b>large datasets</b> and the <b>Polars DataFrame library</b>. Traditional feature selection and categorical encoding methods often become computationally expensive and memory-intensive as datasets grow in size and dimensionality.</p>
 
 <p>Specifically, the motivation stemmed from the following challenges:</p>
 
-<ul>
-    <li><b>Performance limitations with large datasets:</b> Existing feature selection and encoding implementations (often in scikit-learn or Pandas-based libraries) can be slow and inefficient when applied to datasets with millions of rows and hundreds of columns.</li>
+<ol>
+    <li><b>Performance limitations with large datasets:</b> Existing feature selection and encoding implementations (often in scikit-learn or Pandas-based libraries) can be slow and inefficient when applied to datasets with millions of rows and hundreds of columns.</li>          
     <li><b>Lack of Polars integration:</b> Many feature engineering tools are designed for Pandas DataFrames, requiring conversions to and from Polars, which introduces overhead and negates the performance benefits of Polars.</li>
     <li><b>Need for efficient MRMR feature selection:</b> Max-Relevance and Min-Redundancy (MRMR) is a powerful feature selection technique, but efficient implementations optimized for large datasets were needed, especially within the Polars ecosystem.</li>
-    <li><b>Handling diverse data types:</b> The library needed to seamlessly handle both numerical and categorical features, and intelligently apply appropriate imputation strategies for diverse use cases.</li>
-    <li><b>Extensibility and Pipeline Integration:</b> The components should be designed as scikit-learn compatible transformers, allowing for easy integration into machine learning pipelines and workflows.</li>
-</ul>
+    <li><b>Overfitting concerns:</b> Classic feature selection methods can lead to overfitting, especially when dealing with high-dimensional data. There was a need for a method that could provide more stable and reliable feature selection.</li>
+    <li><b>Availability of scikit-learn Pipelines & Testing:</b> Most specialized libraries did not make their feature selection available as sckit-learn compatible transformers. That's why I created Pipeline examples (e.g., <code>fs_test.py</code> and <code>featurewiz_polars_test1.ipynb</code>) to  test the integration of our feature selector within scikit-learn pipelines to test the functionality and performance of the library.</li>
+    <li><b>Addressing Date-Time Variables:</b> Most feature selection libraries did not handle date-time variables. Hence they were useless in time series problems. Recognizing this gap, the library's scope was expanded to include date-time variables (to help in time series tasks) and also the filling of NaN's and Nulls which commonly occurs in in Polars data frames. Thus a <code>Polars_MissingTransformer</code> was  added to handle Nulls and NaNs efficiently within Polars.</li>
+    <li><b>Testing and Refinement:</b> Throughout the development, I put in an intense focus on verifying the correctness of the new algorithms and code, making sure that the new algorithm outpeformed my existing classic featurewiz library, particularly in the <code>recursive_xgboost</code> method which I modified.</li>
+</ol>
 
 <h3>Key Differentiators</h3>
 
@@ -33,28 +45,6 @@ The new `featurewiz-polars` leverages Polars library to deliver following **adva
 4.  **XGBoost / Polars native integration:** *`featurewiz-polars` integrates natively and seamlessly with XGBoost, streamlining your entire ML pipeline from start to finish with Polars.*
 
 In short, using Polars with our train-validation-split `recursive_xgboost` method offers a powerful combination: the robust feature selection of classic `featurewiz` with the new stabilization tailwind to give you more choices for reliable and fast feature selection, particularly for large datasets.
-
-<h3>Development stages: From request to algorithm</h3>
-
-The development of `featurewiz-polars`  was an iterative process driven by the initial request for improved feature engineering and evolved through several key stages:
-
-<ol>
-    <li><b>Initial Request & Problem Definition:</b> My journey began with a user request to bring featurewiz's amazing feature selection and encoding capabilities to Polars, particularly for large datasets. The core problem they faced was the inefficiency of existing methods which cannot scale with pandas to millions of rows.</li>
-    <li><b>Focus on Polars Efficiency:</b> I then made the decision to build the library natively using Polars DataFrames to leverage Polars' blazing speed and memory efficiency. This meant re-implementing my entire feature engineering pipeline using native Polars operations as much as possible. This was much harder than I imagined.</li>
-    <li><b><code>Polars_CategoricalEncoder</code> Development:</b> The first step was to create a fast categorical encoder for Polars. <code>Polars_CategoricalEncoder</code> was conceived and developed, by refining my original featurewiz implementation called <code>My_Label_Encoder()</code>, but adding more encoding types (Target, WOE, Ordinal, OneHot), and I then finally added handling of nan's and null values in those categories (Wooh).</li>
-    <li><b><code>Polars_DateTimeEncoder</code> Development:</b> The next step was to create a fast date-time encoder for Polars. <code>Polars_DateTimeEncoder</code> was developed, again added some error handling in dates.</li>
-    <li><b><code>Other Transformers</code> Development:</b> The final step was to create a Y-Transformer that can encode target variables that are categorical for Polars. <code>The YTransformer</code> was developed and it turned out to be very useful in scikit-learn pipelines which I later developed (see below) .</li>
-    <li><b><code>Polars_SULOV_MRMR</code> Development & Iteration:</b> The core of the library, the <code>Polars_SULOV_MRMR</code>, underwent several iterations to optimize performance and correctness:
-        <ul>
-            <li><b><code>V1-V3</code>:</b> Initially I focused on creating a basic Polars-compatible MRMR selector, copying my featurewiz implementation and modifying it to Polars.</li>
-            <li><b><code>V4</code>:</b> I then made a critical correction to the calculations in <code>recursive_xgboost</code> process to address the growing volume of features it selected that did not add to performance.</li>
-            <li><b><code>V5</code>:</b> I found a major stumbling block in that classic process and corrected it in <code>V5</code>. This involved splitting the dataset into train and validation and running recursive_xgboost within it, thus  ensuring a stable number of features in each round of XGBoost feature selection. I have renamed the old approach as "classic" and the new approach as "split-driven" which you can test in the library.</li>
-        </ul>
-    </li>
-    <li><b>Pipeline Examples & Testing:</b> Pipeline examples (e.g., <code>fs_test.py</code> and <code>featurewiz_polars_test1.ipynb</code>) were created to test the integration of the encoder and selector within scikit-learn pipelines and to test the functionality and performance of the library.</li>
-    <li><b>Addressing Date-Time Variables:</b> The library's scope was expanded to include date-time variables (to help in time series tasks) and the filling of NaN's and Nulls in Polars data frames. Thus a <code>Polars_MissingTransformer</code> was  added to handle Nulls and NaNs efficiently within Polars.</li>
-    <li><b>Testing and Refinement:</b> Throughout the development, I put in an intense focus on verifying the correctness of the new algorithms and code, making sure that the new algorithm outpeformed my existing classic featurewiz library, particularly in the <code>recursive_xgboost</code> method which I modified.</li>
-</ol>
 
 <h3> Install</h3>
 
@@ -72,10 +62,12 @@ python fs_test.py
 or<br>
 2. You can download and unzip https://github.com/AutoViML/featurewiz_polars/archive/master.zip and follow the instructions from pip install above. But you start from the terminal in the directory where you downloaded the zip file.<br>
 or<br>
-3. You can install from source as follows on the terminal command:
+3. You can install either from source or from pypi as follows on the terminal command:
 
 ```
 pip install git+https://github.com/AutoViML/featurewiz_polars.git
+or
+pip install featurewiz-polars
 ```
 
 <h3>Feeding data into featurewiz-polars</h3>
@@ -221,3 +213,6 @@ The new `featurewiz-polars` library uses an improved method for `recursive_xgboo
 <h3>Feedback and comments welcome</h3>
 
 If you are working on processing massive datasets with Polars' speed and efficiency, while leveraging the power of `featurewiz_polars` for building high quality MLOps workflows, I welcome your feedback and comments to me at rsesha2001 at yahoo dot com for making it more useful to you in the months to come. Please `star` this repo or open a pull request or report an issue. Every which way, you make this repo more useful and better for everyone!
+
+
+Copyright 2025 Ram Seshadri
