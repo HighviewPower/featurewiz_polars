@@ -16,7 +16,7 @@ setuptools.setup(
     py_modules = ["featurewiz_polars"],
     packages=setuptools.find_packages(exclude=("tests",)),
     install_requires=[
-        "numpy<2.0",
+        "numpy>=2.0",
         "pandas>=1.2.4",
         "scipy",
         "scikit-learn>=1.2.2",
