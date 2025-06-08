@@ -1,7 +1,7 @@
-# polars_verifier_mrmr_v6.py (Minor Clarity Tweaks in MRMR)
 import numpy as np
 import pandas as pd
 import polars as pl
+
 np.random.seed(42)
 import polars.selectors as cs
 import pyarrow
@@ -9,39 +9,59 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from scipy.stats import spearmanr
+
 # Needed imports
 from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier # Or LightGBM, XGBoost, etc.
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    RandomForestClassifier,
+)  # Or LightGBM, XGBoost, etc.
+
 # Import the Polars classes now
-from .polars_categorical_encoder import Polars_CategoricalEncoder # Now using V2 of Encoder
-from .polars_datetime_transformer import Polars_DateTimeTransformer # Import new date-time transformer
-from .polars_other_transformers import YTransformer, Polars_MissingTransformer, Polars_ColumnEncoder
+from .polars_categorical_encoder import (
+    Polars_CategoricalEncoder,
+)  # Now using V2 of Encoder
+from .polars_datetime_transformer import (
+    Polars_DateTimeTransformer,
+)  # Import new date-time transformer
+from .polars_other_transformers import (
+    YTransformer,
+    Polars_MissingTransformer,
+    Polars_ColumnEncoder,
+)
 from .polars_sulov_mrmr import Sulov_MRMR
 import time
 import copy
 import pdb
 import warnings
+
+
 #############################################################################
 class FeatureWiz(BaseEstimator, TransformerMixin):
-    def __init__(self, 
-            model_type='classification', category_encoders='target', 
-            imputation_strategy='mean', corr_limit=0.7,
-            classic=False, estimator=None,
-            verbose=0):
+    def __init__(
+        self,
+        model_type="classification",
+        category_encoders="target",
+        imputation_strategy="mean",
+        corr_limit=0.7,
+        classic=False,
+        estimator=None,
+        verbose=0,
+    ):
         """
         Initializes the FeatureWiz class for feature engineering and selection.
 
         Args:
-            model_type (str, optional): The type of model to be built ('classification' or 'regression'). 
+            model_type (str, optional): The type of model to be built ('classification' or 'regression').
                 Determines the appropriate preprocessing and feature selection strategies. Defaults to 'classification'.
 
-            category_encoders (str, optional): The type of encoding to apply to categorical features ('woe', 'target', 'ordinal', 'onehot', etc.).  
+            category_encoders (str, optional): The type of encoding to apply to categorical features ('woe', 'target', 'ordinal', 'onehot', etc.).
                 'woe' encoding is only available for classification model types. Defaults to 'target'.
 
-            imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros'). 
+            imputation_strategy (str, optional): The strategy for handling missing values ('mean', 'median', 'zeros').
             Determines how missing data will be filled in before feature selection. Defaults to 'mean'.
 
-            corr_limit (float, optional): The correlation limit for removing highly correlated features. 
+            corr_limit (float, optional): The correlation limit for removing highly correlated features.
             Features with a correlation above this limit will be considered for removal. Defaults to 0.7.
 
             classic (bool, optional): If true, implements the original classic featurewiz approach.
@@ -61,33 +81,78 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.fitted_ = False
         # MRMR is different for regression and classification
-        if self.model_type == 'regression':
-            
+        if self.model_type == "regression":
             ### This is for Regression where no YTransformer is needed ##
-            preprocessing_pipeline = Pipeline([
-                    ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.category_encoders, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
-                    ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
-                ])
+            preprocessing_pipeline = Pipeline(
+                [
+                    (
+                        "datetime_transformer",
+                        Polars_DateTimeTransformer(datetime_features="auto"),
+                    ),  # Specify your datetime columns
+                    (
+                        "cat_transformer",
+                        Polars_CategoricalEncoder(
+                            model_type=self.model_type,
+                            encoding_type=self.category_encoders,
+                            categorical_features="auto",
+                            handle_unknown="value",
+                            unknown_value=0.0,
+                        ),
+                    ),
+                    (
+                        "nan_transformer",
+                        Polars_MissingTransformer(strategy=self.imputation_strategy),
+                    ),
+                ]
+            )
         else:
             #### This is for Classification where YTransformer is needed ####
             #### You need YTransformer in the X_pipeline becasue featurewiz uses XGBoost which needs a transformed Y. Otherwise error!
-            preprocessing_pipeline = Pipeline([
-                    ('datetime_transformer', Polars_DateTimeTransformer(datetime_features="auto")), # Specify your datetime columns
-                    ('cat_transformer', Polars_CategoricalEncoder(model_type=self.model_type, encoding_type=self.category_encoders, categorical_features="auto", handle_unknown='value', unknown_value=0.0)),
-                    ('nan_transformer', Polars_MissingTransformer(strategy=self.imputation_strategy)),
-                    ('ytransformer', YTransformer()),
-                ])
+            preprocessing_pipeline = Pipeline(
+                [
+                    (
+                        "datetime_transformer",
+                        Polars_DateTimeTransformer(datetime_features="auto"),
+                    ),  # Specify your datetime columns
+                    (
+                        "cat_transformer",
+                        Polars_CategoricalEncoder(
+                            model_type=self.model_type,
+                            encoding_type=self.category_encoders,
+                            categorical_features="auto",
+                            handle_unknown="value",
+                            unknown_value=0.0,
+                        ),
+                    ),
+                    (
+                        "nan_transformer",
+                        Polars_MissingTransformer(strategy=self.imputation_strategy),
+                    ),
+                    ("ytransformer", YTransformer()),
+                ]
+            )
 
-        featurewiz_pipeline = Pipeline([
-                    ('featurewiz', Sulov_MRMR(corr_threshold=self.corr_limit, estimator=self.estimator,
-                    model_type=self.model_type, classic=self.classic, verbose=self.verbose)),
-                ])
+        featurewiz_pipeline = Pipeline(
+            [
+                (
+                    "featurewiz",
+                    Sulov_MRMR(
+                        corr_threshold=self.corr_limit,
+                        estimator=self.estimator,
+                        model_type=self.model_type,
+                        classic=self.classic,
+                        verbose=self.verbose,
+                    ),
+                ),
+            ]
+        )
 
-        feature_selection = Pipeline([
-                ('PreProcessing_pipeline', preprocessing_pipeline),
-                ('Featurewiz_pipeline', featurewiz_pipeline)
-            ])
+        feature_selection = Pipeline(
+            [
+                ("PreProcessing_pipeline", preprocessing_pipeline),
+                ("Featurewiz_pipeline", featurewiz_pipeline),
+            ]
+        )
 
         ### You need to separately create a column encoder because you will need this for transforming y_test later!
         y_encoder = Polars_ColumnEncoder()
@@ -96,14 +161,14 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.estimator_name = self._get_model_name(estimator)
 
     def _get_model_name(self, mod):
-        if 'catboost' in str(mod).lower():
-            return 'CatBoost'
-        elif 'lgbm' in str(mod).lower():
-            return 'LightGBM'
-        elif 'randomforest' in str(mod).lower():
+        if "catboost" in str(mod).lower():
+            return "CatBoost"
+        elif "lgbm" in str(mod).lower():
+            return "LightGBM"
+        elif "randomforest" in str(mod).lower():
             return "RandomForest"
         else:
-            return 'XGBoost'
+            return "XGBoost"
 
     def _check_pandas(self, XX):
         """
@@ -152,7 +217,7 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
 
         #### Now train the model using the feature union pipeline
         self.feature_selection.fit(X, y)
-        if self.model_type != 'regression':
+        if self.model_type != "regression":
             self.y_encoder.fit(y)
 
         ### If successful save all the pipelines in following variables to use later in transform and predict
@@ -160,8 +225,10 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         self.featurewiz_pipeline = self.feature_selection[-1]
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection[-1][-1].get_feature_names_out()
-        print(f'\nFeaturewiz-Polars feature selection with {self.estimator_name} estimator completed.')
-        print('Time taken  = %0.1f seconds' %(time.time()-start_time))
+        print(
+            f"\nFeaturewiz-Polars feature selection with {self.estimator_name} estimator completed."
+        )
+        print("Time taken  = %0.1f seconds" % (time.time() - start_time))
         self.fitted_ = True
         return self
 
@@ -177,13 +244,13 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
             Polars DataFrame: Transformed DataFrame with selected features, shape (n_samples, n_selected_features)
             Polars Series: Transformed Series if y is given
         """
-        check_is_fitted(self, 'fitted_')
+        check_is_fitted(self, "fitted_")
         X = self._check_pandas(X)
         if y is None:
             return self.feature_selection.transform(X)[self.selected_features]
         else:
             Xt = self.feature_selection.transform(X)[self.selected_features]
-            if self.model_type != 'regression':
+            if self.model_type != "regression":
                 yt = self.y_encoder.transform(y)
             else:
                 yt = copy.deepcopy(y)
@@ -203,23 +270,26 @@ class FeatureWiz(BaseEstimator, TransformerMixin):
         """
         self.fit(X, y)
         Xt = self.transform(X)[self.selected_features]
-        if self.model_type != 'regression':
+        if self.model_type != "regression":
             yt = self.y_encoder.transform(y)
         else:
             yt = copy.deepcopy(y)
         return Xt, yt
 
+
 ##############################################################################
 class Featurewiz_MRMR(FeatureWiz):
     """Deprecated: Use FeatureWiz instead."""
+
     def __init__(self, *args, **kwargs):
         warnings.warn(
             "Featurewiz_MRMR is deprecated and will be removed in a future version. "
             "Use FeatureWiz instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(*args, **kwargs)
+
 
 ##############################################################################
 class FeatureWiz_Model(BaseEstimator, TransformerMixin):
@@ -236,10 +306,18 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         estimator (estimator object, optional): Model for feature selection.
         verbose (int, optional): Verbosity level.
     """
-    def __init__(self, model_type='classification', model=None,
-                 category_encoders='target', imputation_strategy='mean',
-                 corr_limit=0.7, classic=False, estimator=None,
-                 verbose=0):
+
+    def __init__(
+        self,
+        model_type="classification",
+        model=None,
+        category_encoders="target",
+        imputation_strategy="mean",
+        corr_limit=0.7,
+        classic=False,
+        estimator=None,
+        verbose=0,
+    ):
         self.model = model
         self.model_type = model_type.lower()
         self.category_encoders = category_encoders
@@ -254,12 +332,15 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         self.classic = classic
         self.estimator = estimator
         # MRMR is same for regression and classification
-        feature_selection = FeatureWiz(model_type=self.model_type,  # Changed from Featurewiz_MRMR
-            category_encoders=self.category_encoders, 
-            imputation_strategy=self.imputation_strategy, 
+        feature_selection = FeatureWiz(
+            model_type=self.model_type,  # Changed from Featurewiz_MRMR
+            category_encoders=self.category_encoders,
+            imputation_strategy=self.imputation_strategy,
             corr_limit=self.corr_limit,
-            classic=self.classic, estimator=self.estimator,
-            verbose=self.verbose)
+            classic=self.classic,
+            estimator=self.estimator,
+            verbose=self.verbose,
+        )
 
         ### You need to separately create a column encoder because you will need this for transforming y_test later!
         y_encoder = Polars_ColumnEncoder()
@@ -268,14 +349,14 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         self.model_name = self._get_model_name(model)
 
     def _get_model_name(self, mod):
-        if 'catboost' in str(mod).lower():
-            return 'CatBoost'
-        elif 'lgbm' in str(mod).lower():
-            return 'LightGBM'
-        elif 'randomforest' in str(mod).lower():
+        if "catboost" in str(mod).lower():
+            return "CatBoost"
+        elif "lgbm" in str(mod).lower():
+            return "LightGBM"
+        elif "randomforest" in str(mod).lower():
             return "RandomForest"
         else:
-            return 'XGBoost'
+            return "XGBoost"
 
     def _check_pandas(self, XX):
         """
@@ -327,7 +408,7 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         #### Now train the model using the feature union pipeline
         self.feature_selection.fit(X, y)
         self.y_encoder.fit(y)
-        if self.model_type == 'regression':
+        if self.model_type == "regression":
             ### The model is not fitted yet so self.model_fitted_ is still False
             if self.model is None:
                 self.model = RandomForestRegressor(n_estimators=100, random_state=99)
@@ -338,8 +419,10 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         ### since this is a pipeline within a pipeline, you have to use nested lists to get the features!
         self.selected_features = self.feature_selection.selected_features
         self.fitted_ = True
-        print(f'\nFeaturewiz-Polars MRMR completed training with {self.model_name} Model.')
-        print('Total time taken  = %0.1f seconds' %(time.time()-start_time))
+        print(
+            f"\nFeaturewiz-Polars MRMR completed training with {self.model_name} Model."
+        )
+        print("Total time taken  = %0.1f seconds" % (time.time() - start_time))
         return self
 
     def transform(self, X, y=None):
@@ -353,7 +436,7 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         Returns:
             Polars DataFrame: Transformed DataFrame with selected features, shape (n_samples, n_selected_features)
         """
-        check_is_fitted(self, 'fitted_')
+        check_is_fitted(self, "fitted_")
         X = self._check_pandas(X)
         if y is None:
             return self.feature_selection.transform(X)
@@ -367,11 +450,15 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
             return Xt, yt
 
     def _fit_different_models(self, X, y):
-        if 'catboost' in str(self.model).lower():
+        if "catboost" in str(self.model).lower():
             self.model.fit(X.to_pandas(), y.to_pandas())
-        elif 'lgbm' in str(self.model).lower():
-            self.model.fit(X.to_pandas(), y.to_pandas(), categorical_feature='auto', 
-                    feature_name='auto')
+        elif "lgbm" in str(self.model).lower():
+            self.model.fit(
+                X.to_pandas(),
+                y.to_pandas(),
+                categorical_feature="auto",
+                feature_name="auto",
+            )
         else:
             self.model.fit(X, y)
         return self.model
@@ -403,7 +490,7 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         y = self._check_pandas(y)
         self.fit(X, y)
         Xt = self.transform(X)
-        if self.model_type != 'regression':
+        if self.model_type != "regression":
             yt = self.y_encoder.transform(y)
         else:
             yt = y
@@ -440,7 +527,7 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         self.fit(X, y)
         if not self.model is None:
             Xt = self.transform(X)
-            if self.model_type != 'regression':
+            if self.model_type != "regression":
                 yt = self.y_encoder.transform(y)
             else:
                 yt = y
@@ -448,9 +535,11 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
             self.model_fitted_ = True
             return self.model.predict(Xt[self.selected_features])
         else:
-            raise ValueError("Inappropriate value of None for model argument in pipeline. Please correct and try again.")
+            raise ValueError(
+                "Inappropriate value of None for model argument in pipeline. Please correct and try again."
+            )
 
-    def predict(self, X, y=None) :
+    def predict(self, X, y=None):
         """
         Predicts on the data by selecting the top MRMR features in Polars DataFrame.
 
@@ -461,36 +550,36 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         Returns:
             Polars DataFrame: Transformed DataFrame with selected features, shape (n_samples, n_selected_features)
         """
-        check_is_fitted(self, 'fitted_')
+        check_is_fitted(self, "fitted_")
         X = self._check_pandas(X)
         Xt = self.transform(X)
         if y is None:
             if self.model_fitted_:
-                if 'catboost' in str(self.model).lower():
+                if "catboost" in str(self.model).lower():
                     return self.model.predict(Xt.to_pandas())
-                elif 'lgbm' in str(self.model).lower():
+                elif "lgbm" in str(self.model).lower():
                     return self.model.predict(Xt.to_pandas())
                 else:
                     return self.model.predict(Xt)
             else:
-                print('Error: Model is not fitted yet. Please call fit_predict() first')
+                print("Error: Model is not fitted yet. Please call fit_predict() first")
                 return X
         else:
             if not self.model_fitted_:
-                if self.model_type != 'regression':
+                if self.model_type != "regression":
                     yt = self.y_encoder.transform(y)
                 else:
                     yt = y
                 ### Now fit the model and predict since it is not fitted yet ###
                 self.model = self._fit_different_models(Xt, yt)
-                if 'catboost' in str(self.model).lower():
+                if "catboost" in str(self.model).lower():
                     return self.model.predict(Xt.to_pandas())
-                elif 'lgbm' in str(self.model).lower():
+                elif "lgbm" in str(self.model).lower():
                     return self.model.predict(Xt.to_pandas())
                 else:
                     return self.model.predict(Xt)
 
-    def predict_proba(self, X, y=None) :
+    def predict_proba(self, X, y=None):
         """
         Predicts on the data by selecting the top MRMR features in Polars DataFrame.
 
@@ -501,41 +590,48 @@ class FeatureWiz_Model(BaseEstimator, TransformerMixin):
         Returns:
             Polars DataFrame: Transformed DataFrame with selected features, shape (n_samples, n_selected_features)
         """
-        check_is_fitted(self, 'fitted_')
+        check_is_fitted(self, "fitted_")
         X = self._check_pandas(X)
         Xt = self.transform(X)
         if y is None:
             if self.model_fitted_:
-                if self.model_type != 'regression':
-                    if 'catboost' in str(self.model).lower():
-                        return self.model.predict_proba(Xt[self.selected_features].to_pandas())
+                if self.model_type != "regression":
+                    if "catboost" in str(self.model).lower():
+                        return self.model.predict_proba(
+                            Xt[self.selected_features].to_pandas()
+                        )
                     else:
                         return self.model.predict_proba(Xt[self.selected_features])
             else:
-                print('Error: Model is not fitted yet. Please call fit_predict() first')
+                print("Error: Model is not fitted yet. Please call fit_predict() first")
                 return Xt
         else:
             if not self.model_fitted_:
-                if self.model_type != 'regression':
+                if self.model_type != "regression":
                     yt = self.y_encoder.transform(y)
                 else:
                     yt = y
                 self.model = self._fit_different_models(Xt[self.selected_features], yt)
-            if 'catboost' in str(self.model).lower():
+            if "catboost" in str(self.model).lower():
                 return self.model.predict_proba(Xt[self.selected_features].to_pandas())
-            elif 'lgbm' in str(self.model).lower():
+            elif "lgbm" in str(self.model).lower():
                 return self.model.predict_proba(Xt[self.selected_features].to_pandas())
             else:
                 return self.model.predict_proba(Xt[self.selected_features])
+
+
 ##############################################################################
 class Featurewiz_MRMR_Model(FeatureWiz_Model):
     """Deprecated: Use FeatureWiz_Model instead."""
+
     def __init__(self, *args, **kwargs):
         warnings.warn(
             "Featurewiz_MRMR_Model is deprecated and will be removed in a future version. "
             "Use FeatureWiz_Model instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(*args, **kwargs)
+
+
 ##############################################################################
