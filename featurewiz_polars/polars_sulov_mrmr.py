@@ -206,7 +206,7 @@ class Sulov_MRMR(BaseEstimator, TransformerMixin):
             )
             .filter(
                 (pl.col("feature_a") < pl.col("feature_b"))  # Upper triangle
-                & (pl.col("correlation") >= self.corr_threshold)
+                & (pl.col("correlation").abs() >= self.corr_threshold)
             )
             .sort("correlation", descending=True)
         )
